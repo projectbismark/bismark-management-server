@@ -88,7 +88,7 @@ def set_tcp_keepalive(fd, keepalive = True,
 
 class Probe(object):
     def __init__(self, probe_str, host):
-        parts = probe_str.split(3)
+        parts = probe_str.split(None, 3)
         if len(parts) < 3:
             raise ValueError()
         self.id = parts[0]
