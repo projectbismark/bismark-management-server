@@ -12,19 +12,20 @@ from txpostgres import txpostgres
 import psycopg2
 
 
-ENV_VARS = ['VAR_DIR',
-            'BDM_PG_HOST',
-            'BDM_PG_PORT',
-            'BDM_PG_USER',
-            'BDM_PG_PASSWORD',
-            'BDM_PG_SSLMODE',
-            'BDM_PG_DBNAME',
-            'BDM_TXPG_CONNPOOL',
-            'BDM_TIME_ERROR',
-            'BDM_MAX_DELAY',
-            'BDM_DB_QUERY_TIMEOUT',
-            'BDM_DB_RECON_TIMEOUT',
-            ]
+REQ_ENV_VARS = ['VAR_DIR',
+                'BDM_PG_HOST',
+                'BDM_PG_USER',
+                'BDM_PG_PASSWORD',
+                'BDM_PG_DBNAME',
+                ]
+OPT_ENV_VARS = ['BDM_PG_PORT',
+                'BDM_TXPG_CONNPOOL',
+                'BDM_TIME_ERROR',
+                'BDM_MAX_DELAY',
+                'BDM_DB_QUERY_TIMEOUT',
+                'BDM_DB_RECON_TIMEOUT',
+                ]
+LOG_SUBDIR = 'log/devices'
 
 
 def set_tcp_keepalive(fd, keepalive = True,
@@ -118,6 +119,11 @@ class ProbeHandler(DatagramProtocol):
                 user=config['BDM_PG_USER'],
                 password=config['BDM_PG_PASSWORD'],
                 )
+        self.config = {}
+        self.config['logdir'] = os.path.join(
+                os.path.abspath(config['VAR_DIR']), LOG_SUBDIR)
+        self.config['max_delay'] = int(config['BDM_MAX_DELAY'] or 300)
+        self.config['time_error'] = int(config['BDM_MAX_DELAY'] or 2)
 
     def datagramReceived(self, data, (host, port)):
 
@@ -279,20 +285,43 @@ class ProbeHandler(DatagramProtocol):
         return staticmethod(connect)
 
 
+def print_debug(s):
+    print(s)
+
+
+def print_error(s):
+    sys.stderr.write("%s\n" % s)
+
 
 if __name__ == '__main__':
-    config = {}
-    for evname in ENV_VARS:
-        config[evname] = os.environ.get(evname)
-    ph = ProbeHandler(config)
     if len(sys.argv) < 2:
-        print("At least one port number required.")
-    else:
-        for port in (int(x) for x in sys.argv[1:]):
-            if 1024 <= port <= 65535:
-                reactor.listenUDP(port, ph)
-            else:
-                print("Invalid port %d" % port)
+        print_error("  USAGE: %s PORT..." % sys.argv[0])
+        sys.exit(1)
+
+    config = {}
+    for evname in REQ_ENV_VARS:
+        try:
+            config[evname] = os.environ[evname]
+        except KeyError:
+            print_error(("Environment variable '%s' required and not defined. "
+                         "Terminating.") % evname)
+            sys.exit(1)
+    for evname in OPT_ENV_VARS:
+        config[evname] = os.environ.get(evname)
+
+    ph = ProbeHandler(config)
+    listeners = 0
+    for port in (int(x) for x in sys.argv[1:]):
+        if 1024 <= port <= 65535:
+            reactor.listenUDP(port, ph)
+            print("Listening on port %d" % port)
+            listeners += 1
+        else:
+            print_error("Invalid port %d" % port)
+    if listeners > 0:
         reactor.addSystemEventTrigger('before', 'startup', ph.startup)
         reactor.addSystemEventTrigger('before', 'shutdown', ph.shutdown)
         reactor.run()
+    else:
+        print_error("Not listening on any ports. Terminating.")
+        sys.exit(1)
