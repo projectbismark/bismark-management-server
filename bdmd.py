@@ -182,7 +182,8 @@ class ProbeHandler(DatagramProtocol):
                 "           (mt.mexclusive = 1 AND "
                 "            t.free_ts < %s)) "
                 "ORDER BY dt.priority DESC, t.free_ts ASC "
-                "LIMIT 1;"), [probe.id, m_type, m_cat, probe.time_ts + 300])  # TODO s/300/config.max_delay/
+                "LIMIT 1;"), [probe.id, m_type, m_cat,
+                probe.time_ts + self.config['max_delay']])
 
         def handle_query(resultset):
             da = None
@@ -200,7 +201,9 @@ class ProbeHandler(DatagramProtocol):
                         delay = t_free_ts - probe.time_ts
                     da = self.dbpool.runOperation(
                             "UPDATE targets SET free_ts=%s WHERE ip=%s;",
-                            [probe.time_ts + delay + m_dur + 10, t_ip])  # TODO s/10/config.time_error/
+                            [probe.time_ts + delay + m_dur +
+                            self.config['time_error'], t_ip])
+
                     da.addCallback(lambda _: probe)
                 probe.reply = '%s %s %d\n' % (t_ip, t_info, delay)
                 print(("%s - Scheduled %s measure from %s to %s at %d for %s "
