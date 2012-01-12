@@ -86,17 +86,18 @@ def set_tcp_keepalive(fd, keepalive = True,
         s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 0)
 
 
-
-
 class Probe(object):
-
     def __init__(self, probe_str, host):
-        parts = probe_str.split()
+        parts = probe_str.split(3)
         if len(parts) < 3:
             raise ValueError()
         self.id = parts[0]
         self.cmd = parts[1]
-        self.params = parts[2:]
+        self.param = parts[2]
+        try:
+            self.payload = parts[3]
+        except IndexError:
+            self.payload = None
         self.ip = host
         arrival_time = datetime.datetime.now().replace(microsecond=0)
         self.time_ts = int(time.mktime(arrival_time.timetuple()))
@@ -106,7 +107,6 @@ class Probe(object):
 
 
 class ProbeHandler(DatagramProtocol):
-
     def __init__(self, config):
         txpostgres.Connection.connectionFactory=self._tcp_connfactory(
                 tcp_params=None)
@@ -153,8 +153,17 @@ class ProbeHandler(DatagramProtocol):
         d.addCallback(send_reply)
 
     def handle_log(self, probe):
-        print(probe.params)
-        print("printing log...")  # TODO write log
+        print("%s - Received log from %s: %s" %
+                (probe.time_str, probe.id, probe.param))
+
+        # write log entry
+        logfilename = os.path.basename('%s.log' % probe.id)
+        logfile = open(os.path.join(self.config['logdir'], logfilename), 'a')
+        logfile.write("%s - %s\n%s\nEND - %s\n" %
+                (probe.time_str, probe.param, probe.payload, probe.param))
+        logfile.close()
+
+        # send message to bdm client
         d = self.dbpool.runOperation(
                 ("INSERT INTO messages (msgfrom, msgto, msg) "
                 "VALUES (%s, 'BDM', %s);"), [probe.id,' '.join(probe.params)])
