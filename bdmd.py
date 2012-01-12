@@ -126,14 +126,12 @@ class ProbeHandler(DatagramProtocol):
         self.config['time_error'] = int(config['BDM_MAX_DELAY'] or 2)
 
     def datagramReceived(self, data, (host, port)):
-
         try:
             p = Probe(data, host)
         except ValueError:
             return
-
-        print("%s - \"%s %s\" from %s [%s]" %
-                (p.time_str, p.cmd, ' '.join(p.params), p.id, host))
+        print_debug("%s - \"%s %s\" from %s [%s]" %
+                (p.time_str, p.cmd, p.param, p.id, host))
 
         d = self.check_blacklist(p)
 
@@ -266,11 +264,11 @@ class ProbeHandler(DatagramProtocol):
         return d.addCallback(prepare_reply)
 
     def shutdown(self):
-        print("Shutting down...")
+        print_debug("Shutting down...")
         self.dbpool.close()
 
     def startup(self):
-        print("Starting up...")
+        print_debug("Starting up...")
         self.dbpool.start()
 
     @staticmethod
