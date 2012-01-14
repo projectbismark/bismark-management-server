@@ -18,14 +18,31 @@ REQ_ENV_VARS = ['VAR_DIR',
                 'BDM_PG_PASSWORD',
                 'BDM_PG_DBNAME',
                 ]
-OPT_ENV_VARS = ['BDM_PG_PORT',
-                'BDM_TXPG_CONNPOOL',
-                'BDM_TIME_ERROR',
-                'BDM_MAX_DELAY',
-                'BDM_DB_QUERY_TIMEOUT',
-                'BDM_DB_RECON_TIMEOUT',
+
+# each optional item consists of a tuple (var_name, default_value)
+OPT_ENV_VARS = [('BDM_PG_PORT', 5432),
+                ('BDM_TXPG_CONNPOOL', 5),
+                ('BDM_TIME_ERROR', 2),
+                ('BDM_MAX_DELAY', 300),
+                ('BDM_DB_QUERY_TIMEOUT', 30),
+                ('BDM_DB_RECON_TIMEOUT', 120),
                 ]
 LOG_SUBDIR = 'log/devices'
+
+
+def print_debug(s):
+    print(s)
+
+
+def print_error(s):
+    sys.stderr.write("%s\n" % s)
+
+
+def debug_print_entry(f):
+    def wrapper(*args, **kwargs):
+        print_debug(f.func_name)
+        return f(*args, **kwargs)
+    return wrapper
 
 
 def set_tcp_keepalive(fd, keepalive = True,
@@ -86,16 +103,69 @@ def set_tcp_keepalive(fd, keepalive = True,
         s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 0)
 
 
+class DatabaseConnectionException(Exception):
+    """
+    A problem occurred with the database connection.
+    """
+    def __init__(self, msg=None):
+        self.msg = msg
+    def __str__(self):
+        return("DatabaseConnectionException: '%s'" % repr(self.msg))
+
+
+
+class ClientRequestException(Exception):
+    """
+    A problem with the request string provided by the client.
+    """
+    def __init__(self, msg=None):
+        self.msg = msg
+    def __repr__(self):
+        return self.__str__()
+    def __str__(self):
+        return("ClientRequestException(\"%s\")" % repr(self.msg))
+
+
+class MeasurementRequest(object):
+    def __init__(self, *args, **kwargs):
+        self.category = None
+        self.type = None
+        self.zone = None
+        self.duration = None
+
+        if 'payload' in kwargs:
+            self.init_payload(kwargs['payload'])
+        else:
+            self.category = kwargs.get('category')
+            self.type = kwargs.get('type')
+            self.zone = kwargs.get('zone')
+            self.duration = kwargs.get('duration')
+
+    def init_payload(self, payload):
+        # probe format: "<probe_id> measure <cat> <type> <zone> <dur>"
+        #          e.g. "OW0123456789AB measure Bismark PING NorthAm 0"
+        try:
+            payload_parts = payload.split(None, 4)
+            self.category =  payload_parts[0]
+            self.type = payload_parts[1]
+            self.zone = payload_parts[2]
+            self.duration = int(payload_parts[3])
+        except IndexError, ValueError:
+            raise ClientRequestException(
+                    "Measurement request '%s' incorrectly formatted" % payload)
+
+
 class Probe(object):
     def __init__(self, probe_str, host):
         parts = probe_str.split(None, 3)
         if len(parts) < 3:
-            raise ValueError()
+            raise ClientRequestException(
+                    "Probe '%s' incorrectly formatted" % probe_str)
         self.id = parts[0]
         self.cmd = parts[1]
         self.param = parts[2]
         try:
-            self.payload = parts[3]
+            self.payload = parts[3].strip()
         except IndexError:
             self.payload = None
         self.ip = host
@@ -106,74 +176,125 @@ class Probe(object):
         self.reply = None
 
 
+def eb_print(x):
+    print("errback!")
+    print(x, x.value)
+
+
 class ProbeHandler(DatagramProtocol):
     def __init__(self, config):
         txpostgres.Connection.connectionFactory=self._tcp_connfactory(
                 tcp_params=None)
         self.dbpool = txpostgres.ConnectionPool(
                 None,
-                min=int(config['BDM_TXPG_CONNPOOL'] or 5),
+                min=int(config['BDM_TXPG_CONNPOOL']),
                 host=config['BDM_PG_HOST'],
-                port=int(config['BDM_PG_PORT'] or 5432),
+                port=int(config['BDM_PG_PORT']),
                 database=config['BDM_PG_DBNAME'],
                 user=config['BDM_PG_USER'],
                 password=config['BDM_PG_PASSWORD'],
                 )
+        self.dbpool_started = False
         self.config = {}
         self.config['logdir'] = os.path.join(
                 os.path.abspath(config['VAR_DIR']), LOG_SUBDIR)
-        self.config['max_delay'] = int(config['BDM_MAX_DELAY'] or 300)
-        self.config['time_error'] = int(config['BDM_MAX_DELAY'] or 2)
+        self.config['max_delay'] = int(config['BDM_MAX_DELAY'])
+        self.config['time_error'] = int(config['BDM_MAX_DELAY'])
 
     def datagramReceived(self, data, (host, port)):
         try:
             p = Probe(data, host)
-        except ValueError:
+        except ClientRequestException as cre:
+            print(cre)
             return
+
         print_debug("%s - \"%s %s\" from %s [%s]" %
                 (p.time_str, p.cmd, p.param, p.id, host))
 
         d = self.check_blacklist(p)
+        d.addCallback(self.dispatch_response)
+        d.addCallback(self.send_reply, (host, port))
+        d.addErrback(self.db_error_handler)
+        d.addErrback(self.client_error_handler)
+        d.addErrback(eb_print)
 
-        def handle_probe(probe):
-            da = None
-            if not probe.blacklisted:
-                if probe.cmd == 'ping':
-                    da = self.handle_ping(probe)
-                elif probe.cmd == 'log':
-                    da = self.handle_log(probe)
-                elif probe.cmd == 'measure':
-                    da = self.handle_measure(probe)
-            return da
-        d.addCallback(handle_probe)
+    @debug_print_entry
+    def db_error_handler(self, failure):
+        # TODO: http://archives.postgresql.org/psycopg/2011-02/msg00039.php
+        failure.trap(psycopg2.Error)
+        print("trapped psycopg2.Error")
+        print(dir(failure.value))
+        print(failure.value)
 
-        def send_reply(probe):
-            if probe:
-                self.transport.write("%s" % probe.reply, (host, port))
-        d.addCallback(send_reply)
+    @debug_print_entry
+    def client_error_handler(self, failure):
+        failure.trap(ClientRequestException)
+        print("trapped ClientRequestException")
+        print(failure.value)
 
-    def handle_log(self, probe):
+    @debug_print_entry
+    def check_blacklist(self, probe):
+        d = self.dbpool.runQuery(
+                "SELECT id FROM blacklist where id=%s;", [probe.id])
+        return d.addCallback(self.check_blacklist_qh, probe)
+
+    @debug_print_entry
+    def check_blacklist_qh(self, resultset, probe):
+        # TODO being on the blacklist could be handled with an errback with a
+        #      special blacklist exception...
+        if resultset:
+            probe.blacklisted = True
+        return defer.succeed(probe)
+
+    @debug_print_entry
+    def dispatch_response(self, probe):
+        d = None
+        if not probe.blacklisted:
+            if probe.cmd == 'ping':
+                d = self.handle_ping_req(probe)
+            elif probe.cmd == 'log':
+                d = self.handle_log_req(probe)
+            elif probe.cmd == 'measure':
+                d = self.handle_measure_req(probe)
+        return d
+
+    @debug_print_entry
+    def send_reply(self, probe, (host, port)):
+        if probe and probe.reply:
+            self.transport.write("%s" % probe.reply, (host, port))
+
+    @debug_print_entry
+    def handle_log_req(self, probe):
         print("%s - Received log from %s: %s" %
                 (probe.time_str, probe.id, probe.param))
 
-        # write log entry
-        logfilename = os.path.basename('%s.log' % probe.id)
-        logfile = open(os.path.join(self.config['logdir'], logfilename), 'a')
-        logfile.write("%s - %s\n%s\nEND - %s\n" %
-                (probe.time_str, probe.param, probe.payload, probe.param))
-        logfile.close()
+        try:
+            # write log entry
+            logfilename = os.path.basename('%s.log' % probe.id)
+            logfile = open(
+                    os.path.join(self.config['logdir'], logfilename), 'a')
+            logfile.write("%s - %s\n%s\nEND - %s\n" %
+                    (probe.time_str, probe.param, probe.payload, probe.param))
+            logfile.close()
+        except IOError as ioe:
+            raise ioe  # TODO should this be return defer.fail(ioe)? -- should amount to the same thing?
+        finally:
+            # send message to bdm client
+            d = self.dbpool.runOperation(
+                    ("INSERT INTO messages (msgfrom, msgto, msg) "
+                    "VALUES (%s, 'BDM', %s);"), [probe.id, probe.param])
+            return d.addCallback(lambda _: None)
 
-        # send message to bdm client
-        d = self.dbpool.runOperation(
-                ("INSERT INTO messages (msgfrom, msgto, msg) "
-                "VALUES (%s, 'BDM', %s);"), [probe.id,' '.join(probe.params)])
-        return d.addCallback(lambda _: None)
-
-    def handle_measure(self, probe):
-        m_cat = probe.params[0]   # i.e. Bismark
-        m_type = probe.params[1]  # i.e. PING
-        m_zone = probe.params[2]  # i.e. NorthAm
-        m_dur = int(probe.params[3])   # i.e. 30
+    @debug_print_entry
+    def handle_measure_req(self, probe):
+        try:
+            # in the case of measurement request probes, the payload actually
+            # includes the 'param' field, so we must join them before sending
+            # the measurement probe payload for parsing.
+            mreq = MeasurementRequest(
+                    payload=' '.join([probe.param, probe.payload]))
+        except ClientRequestException as cre:
+            return defer.fail(cre)
 
         d = self.dbpool.runQuery((
                 "SELECT t.ip, c.info, t.free_ts, t.curr_cli, t.max_cli, "
@@ -191,97 +312,110 @@ class ProbeHandler(DatagramProtocol):
                 "           (mt.mexclusive = 1 AND "
                 "            t.free_ts < %s)) "
                 "ORDER BY dt.priority DESC, t.free_ts ASC "
-                "LIMIT 1;"), [probe.id, m_type, m_cat,
+                "LIMIT 1;"), [probe.id, mreq.type, mreq.category,
                 probe.time_ts + self.config['max_delay']])
+        return d.addCallback(self.handle_measure_req_qh, probe, mreq)
 
-        def handle_query(resultset):
-            da = None
-            if resultset:
-                t_ip        = resultset[0][0]
-                t_info      = resultset[0][1]
-                t_free_ts   = int(resultset[0][2])
-                t_curr_cli  = int(resultset[0][3])
-                t_max_cli   = int(resultset[0][4])
-                t_exclusive = (int(resultset[0][5]) == 1)
+    @debug_print_entry
+    def handle_measure_req_qh(self, resultset, probe, mreq):
+        d = None
+        if resultset:
+            # these are all target ("t_") characteristics
+            t_ip        = resultset[0][0]
+            t_info      = resultset[0][1]
+            t_free_ts   = int(resultset[0][2])
+            t_curr_cli  = int(resultset[0][3])
+            t_max_cli   = int(resultset[0][4])
+            t_exclusive = (int(resultset[0][5]) == 1)
+            delay = 0
 
-                delay = 0
-                if t_exclusive:
-                    if t_free_ts > probe.time_ts:
-                        delay = t_free_ts - probe.time_ts
-                    da = self.dbpool.runOperation(
-                            "UPDATE targets SET free_ts=%s WHERE ip=%s;",
-                            [probe.time_ts + delay + m_dur +
-                            self.config['time_error'], t_ip])
-
-                    da.addCallback(lambda _: probe)
-                probe.reply = '%s %s %d\n' % (t_ip, t_info, delay)
-                print(("%s - Scheduled %s measure from %s to %s at %d for %s "
-                        "seconds" % (probe.time_str, m_type, probe.id, t_ip,
-                        probe.time_ts + delay + 10, m_dur)))
-                if not da:
-                    da = defer.succeed(probe)
+            if t_exclusive:
+                if t_free_ts > probe.time_ts:
+                    delay = t_free_ts - probe.time_ts
+                d = self.dbpool.runOperation(
+                        "UPDATE targets SET free_ts=%s WHERE ip=%s;",
+                        [probe.time_ts + delay + mreq.duration +
+                        self.config['time_error'], t_ip])
+                d.addCallback(lambda _: probe)
             else:
-                probe.reply = ' '
-                print("%s - No target available for %s measurement from %s" %
-                        (probe.time_str, m_type, probe.id))
-                da = defer.succeed(probe)
-            return(da)
-        return d.addCallback(handle_query)
+                d = defer.succeed(probe)
+            probe.reply = '%s %s %d\n' % (t_ip, t_info, delay)
+            print(("%s - Scheduled %s measure from %s to %s at %d for %s "
+                    "seconds" % (probe.time_str, mreq.type, probe.id, t_ip,
+                    probe.time_ts + delay + 10, mreq.duration)))
+        else:
+            probe.reply = ' '
+            print("%s - No target available for %s measurement from %s" %
+                    (probe.time_str, mreq.type, probe.id))
+            d = defer.succeed(probe)
+        return(d)
 
-    def check_blacklist(self, probe):
-        d = self.dbpool.runQuery(
-                "SELECT id FROM blacklist where id=%s;", [probe.id])
-        def handle_query(resultset):
-            if resultset:
-                probe.blacklisted = True
-            return defer.succeed(probe)
-        return d.addCallback(handle_query)
+    @debug_print_entry
+    def handle_ping_req(self, probe):
+        d = self.register_device(probe)
+        d.addCallback(self.check_messages)
+        d.addCallback(self.prepare_reply, probe)
+        return(d)
 
+    @debug_print_entry
     def register_device(self, probe):
         d = self.dbpool.runQuery(
                 "SELECT id FROM devices where id=%s;", [probe.id])
-        def handle_query(resultset):
-            if resultset:
-                query = ("UPDATE devices SET ip=%s, ts=%s, bversion=%s "
-                        "WHERE id=%s;")
-            else:
-                query = ("INSERT INTO devices (ip, ts, bversion, id) "
-                        "VALUES (%s, %s, %s, %s);")
-            da = self.dbpool.runOperation(query, [probe.ip, probe.time_ts,
-                    probe.params[0], probe.id])
-            return da.addCallback(lambda _: probe)
-        return d.addCallback(handle_query)
+        return d.addCallback(self.register_device_qh, probe)
 
+    @debug_print_entry
+    def register_device_qh(self, resultset, probe):
+        if resultset:
+            query = ("UPDATE devices SET ip=%s, ts=%s, bversion=%s "
+                    "WHERE id=%s;")
+        else:
+            query = ("INSERT INTO devices (ip, ts, bversion, id) "
+                    "VALUES (%s, %s, %s, %s);")
+        d = self.dbpool.runOperation(
+                query, [probe.ip, probe.time_ts, probe.param, probe.id])
+        return d.addCallback(lambda _: probe)
+
+    @debug_print_entry
     def check_messages(self, probe):
         d = self.dbpool.runQuery(("SELECT rowid, msgfrom, msgto, msg "
                 "FROM messages WHERE msgto=%s LIMIT 1;"), [probe.id])
-        def handle_query(resultset):
-            if resultset:
-                msg_id = resultset[0][0]
-                probe.reply = resultset[0][3]
-                da = self.dbpool.runOperation(
-                        "DELETE FROM messages where rowid=%s;", [msg_id])
-                return da.addCallback(lambda _: probe)
-            else:
-                return defer.succeed(probe)
-        return d.addCallback(handle_query)
+        return d.addCallback(self.check_messages_qh)
 
-    def handle_ping(self, probe):
-        d = self.register_device(probe)
-        d.addCallback(self.check_messages)
-        def prepare_reply(probe):
-            if not probe.reply:
-                probe.reply = "pong %s %d" % (probe.ip, probe.time_ts)
-            return defer.succeed(probe)
-        return d.addCallback(prepare_reply)
+    def check_messages_qh(self, resultset):
+        if resultset:
+            msg_id = resultset[0][0]
+            msg = resultset[0][3]
+            da = self.dbpool.runOperation(
+                    "DELETE FROM messages where rowid=%s;", [msg_id])
+            return da.addCallback(lambda _: msg)
+        else:
+            return defer.succeed(None)
 
-    def shutdown(self):
+    def prepare_reply(self, message, probe):
+        if message:
+            probe.reply = message
+        else:
+            probe.reply = "pong %s %d" % (probe.ip, probe.time_ts)
+        return defer.succeed(probe)
+
+    def stop(self):
         print_debug("Shutting down...")
         self.dbpool.close()
 
-    def startup(self):
+    def start(self):
         print_debug("Starting up...")
-        self.dbpool.start()
+        d = self.dbpool.start()
+        d.addCallbacks(self.started, self.start_failed)
+        #reactor.callLater(30, self.check_started)
+
+    def started(self, _):
+        print("Database connection pool started!")
+        self.dbpool_started = True
+
+    def start_failed(self, failure):
+        print(("Database connection pool startup timed out. Terminating."))
+        print(failure.value.subFailure)
+        reactor.stop()
 
     @staticmethod
     def _tcp_connfactory(tcp_params):
@@ -293,14 +427,6 @@ class ProbeHandler(DatagramProtocol):
                               tcp_keepintvl=10)
             return conn
         return staticmethod(connect)
-
-
-def print_debug(s):
-    print(s)
-
-
-def print_error(s):
-    sys.stderr.write("%s\n" % s)
 
 
 if __name__ == '__main__':
@@ -316,8 +442,8 @@ if __name__ == '__main__':
             print_error(("Environment variable '%s' required and not defined. "
                          "Terminating.") % evname)
             sys.exit(1)
-    for evname in OPT_ENV_VARS:
-        config[evname] = os.environ.get(evname)
+    for (evname, default_val) in OPT_ENV_VARS:
+        config[evname] = os.environ.get(evname) or default_val
 
     ph = ProbeHandler(config)
     listeners = 0
@@ -329,8 +455,8 @@ if __name__ == '__main__':
         else:
             print_error("Invalid port %d" % port)
     if listeners > 0:
-        reactor.addSystemEventTrigger('before', 'startup', ph.startup)
-        reactor.addSystemEventTrigger('before', 'shutdown', ph.shutdown)
+        reactor.addSystemEventTrigger('before', 'startup', ph.start)
+        reactor.addSystemEventTrigger('before', 'shutdown', ph.stop)
         reactor.run()
     else:
         print_error("Not listening on any ports. Terminating.")
