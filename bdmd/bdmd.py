@@ -246,7 +246,8 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def check_blacklist(self, probe):
         d = self.dbpool.runQuery(
-                "SELECT device_id FROM blacklist where id=%s;", [probe.id])
+                "SELECT device_id FROM blacklist where device_id=%s;",
+                        [probe.id])
         return d.addCallback(self.check_blacklist_qh, probe)
 
     @print_entry
