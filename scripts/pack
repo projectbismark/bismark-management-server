@@ -1,0 +1,18 @@
+#!/bin/bash
+
+types="dump"
+ts=$(date +%s)
+
+cd ~/var/data
+for t in $types; do 
+	find -name '*.'$t > /tmp/${t}_list 
+	arc="../tbp/${ts}_${t}.tgz"
+	tar --remove-files -czf $arc -T /tmp/${t}_list
+	chmod 444 $arc
+done
+
+cd ~/var/data/old
+find -name '*.xml.gz' > /tmp/xml_list 
+tar --remove-files -czf  ~/var/backup/${ts}_xml.tgz -T /tmp/xml_list
+chmod 444 ~/var/backup/${ts}_xml.tgz
+

@@ -1,0 +1,7 @@
+## Postgres Configuration
+export BDM_PG_DBNAME=bismark_mgmt
+export BDM_PG_HOST=localhost
+#export BDM_PG_PORT=5432
+export BDM_PG_USER=bismark
+export BDM_PG_PASSWORD=bismark123
+

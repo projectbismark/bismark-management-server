@@ -1,0 +1,102 @@
+#!/bin/bash
+# Bismark Devices Management Daemon wrapper
+#
+# author: walter.dedonato@unina.it
+
+# Load configuration file
+. ~/etc/bdm.conf
+
+# Load local db config file (contains passwords, etc.)
+. ~/etc/bdm_db.conf
+
+export VAR_DIR
+
+# Aliases
+
+# Help screen
+# $1 = command
+function help()
+{
+	cat <<-end
+	Syntax:
+
+	    $(basename $0) [options] <start|stop|restart|info>
+
+	Options:
+
+	    -h               Print help screen
+	end
+	exit
+}
+
+## Main ##
+
+# Check directories
+mkdir -p $VAR_DIR/log/devices/
+
+# Make DB
+db_exists=`psql -l | grep -c $BDM_PG_DBNAME`
+if [ $db_exists -eq 0 ]; then
+	echo "Database $BDM_PG_DBNAME does not exist. Please create it."
+	exit 1
+fi
+num_tables=`psql -A -q -t -c "\dt" $BDM_PG_DBNAME | wc -l`
+if [ $num_tables -eq 0 ]; then
+	cd $DB_SRC
+	make create DB=$BDM_PG_DBNAME
+	cd -
+fi
+
+# Parse command-line
+while getopts 'h' flag; do
+	case $flag in
+	h)
+		help
+	;;
+	*)
+		echo "Unknown option: $flag $OPTARG"
+		help
+	;;
+	esac
+done
+shift $(( OPTIND - 1 ))
+
+pid=$(pgrep bdmd.real)
+ports=$(sudo netstat -lnup | awk -F"[\t: ]*" '/bdmd.real/{ print $5 }')
+case $1 in
+start)
+	if [ "$ports" ]; then
+		echo "bdmd already running on ports" $ports
+	else
+		echo -n "Starting bdmd..."
+		bdmd.real $PROBE_PORTS >> $BDMD_LOG_FILE 2> /tmp/bdmd.debug &
+		sleep 1
+		[ "$(pgrep bdmd.real)" ] && echo "done" || echo "error"
+	fi
+;;
+stop)
+	if [ "$pid" ]; then
+		echo -n "Stopping bdmd..."
+		kill $pid
+		sleep 1
+		[ "$(pgrep bdmd.real)" ] && echo "error" || echo "done"
+	else
+		echo "bdmd not running"
+	fi
+;;
+restart)
+	$0 stop
+	$0 start
+;;
+info)
+	if [ "$pid" ]; then
+		echo "bdmd listening on "$ports" (pid "$pid")"
+	else
+		echo "bdmd not running"
+	fi
+;;
+*)
+	help
+;;
+esac
+

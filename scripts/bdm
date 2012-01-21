@@ -1,0 +1,782 @@
+#!/bin/bash
+# Bismark Devices Management script
+#
+# author: walter.dedonato@unina.it
+
+# Load configuration file
+. ~/etc/bdm.conf
+
+. ~/etc/bdm_db.conf
+
+# Aliases
+query(){ psql -A -q -U bismark -t -c "$1" $BDM_PG_DBNAME | awk 'NF!=0 {print}'; }
+
+# Help screen
+# $1 = command
+function help() 
+{
+	grep -A1 "^ *$1" <<-end
+	Syntax:
+
+	    $(basename $0) [options] <command>
+	
+	Commands:
+	
+	    config   <dev_id> [[opt=value] ...]  Show or Change <dev_id> configuration options (ALL applies)
+
+	    console  <dev_id>                    Open a console on <dev_id> over the SSH tunnel
+	
+	    copy     <file> <dev_id>             Copy file to <dev_id> /tmp directory
+
+	    gtunnel  <dev_id> [port]             Open a globally accessible tunnel to <dev_id> (default: random)
+
+	    exec     <dev_id> <command>          Execute a shell command on <dev_id>
+	
+	    list                                 List available devices and tunnels
+
+	    mslist                               List configured measurement servers
+	
+	    readmsg                              Read incoming messages
+
+	    tunnel   <dev_id> <on> [ip:port]     Open a tunnel to <dev_id> using SSH port forwarding (default: 127.0.0.1:22)
+	             <dev_id> <off> [port]       Close a tunnel to <dev_id> (default: oldest) (ALL applies)
+	
+	    upgrade  <dev_id> [URL]              Upgrade software on <dev_id> (ALL applies)
+
+
+	    For internal use only:
+
+	    blacklist [<dev_id> <on|off>]   Manage devices blacklist
+
+	    updatetunnels                   Updates the tunnel list catching eventual recovery shells
+
+	    settunnel <dev_id> <port>       Set the tunnel entry for <dev_id>
+
+	    setuser   <dev_id> <username>   Set the SSH username for <dev_id>
+	
+	    clearmsg  [id]                  Delete pending messages
+
+	    cleardev  [id]                  Delete device from list
+
+	Options:
+	
+	    -o <ssh_opts>    Additional SSH options
+	    -p <fwd_port>    SSH tunnel port number (default: random)"
+	    -t <timeout>     Max seconds to wait for messages (default: $MSG_TIMEOUT)
+	end
+	exit
+}
+
+# Parse command line
+function parse()
+{
+	p=$*
+
+	# Parse options
+	while getopts 'o:p:t:' flag; do
+		case $flag in
+		o)
+			SSH_OPTIONS+=" -$OPTARG"
+		;;
+		p)
+			FWD_PORT=$OPTARG
+		;;
+		t)
+			MSG_TIMEOUT=$OPTARG
+		;;
+		*)
+			echo "Unknown option: $flag $OPTARG"
+			help
+		;;
+		esac
+	done
+	shift $(( OPTIND - 1 ))	
+	
+	# Parse commands
+	case $1 in
+	tunnel)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help tunnel; }
+		[ $3 ] || { echo -e "Missing parameter: on|off\n"; help tunnel; }
+		if [ $2 == ALL ]; then
+			if [ $3 == "on" ]; then
+				NOWAIT=on
+				for dev in $(query "SELECT id FROM devices WHERE $(date +%s) - ts < 180;"); do
+					FWD_PORT=""
+					start_tunnel $dev
+				done
+			elif [ $3 == "off" ]; then
+				for dev in $(query "SELECT id FROM tunnels;"); do
+					stop_tunnel $dev
+				done
+			fi
+		else
+			check_device_id $2 || { echo -e "Unknown device $2\n"; help tunnel; }
+			[ $3 == "on" ] && start_tunnel $2 $4
+			[ $3 == "off" ] && stop_tunnel $2 $4
+		fi
+	;;
+	gtunnel)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help gtunnel; }
+		[ $2 == ALL ] && { echo -e "ALL not allowed\n"; help gtunnel; }
+		check_device_id $2 || { echo -e "Unknown device $2\n"; help gtunnel; }
+		start_gtunnel $2 $3 
+	;;
+	console)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help console; }
+		[ $2 == ALL ] && { echo -e "ALL not allowed\n"; help console; }
+		check_device_id $2 || { echo -e "Unknown device $2\n"; help console; }
+		echo "Connecting to $2"
+		console $2
+	;;
+	exec)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help exec; }
+		[ $3 ] || { echo -e "Missing parameter: <command>\n"; help exec; }
+		[ $2 == ALL ] && { echo -e "ALL not allowed\n"; help exec; }
+		check_device_id $2 || { echo -e "Unknown device $2\n"; help exec; }
+		echo "Executing \"${p#* * }\" on $2"
+		console $2 ${p#* * }
+	;;
+	list)	
+		list $2
+	;;
+	mslist)	
+		mslist
+	;;
+	readmsg)
+		read_msg
+	;;
+	blacklist)
+		[ $2 ] && { [ $3 ] || { echo -e "Missing parameter: on|off\n"; help blacklist; } }
+		blacklist $2 $3
+	;;
+	upgrade)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help upgrade; }
+		check_device_id $2 || { echo -e "Unknown device $2\n"; help upgrade; }
+		upgrade $2 $3 
+	;;
+	config)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help config; }
+		[ $2 == ALL ] && echo $* | grep -q DEVICE_ID && { echo -e "ALL not allowed for DEVICE_ID\n"; help config; }
+		check_device_id $2 || { echo -e "Unknown device $2\n"; help config; }
+		$* 
+	;;
+	setuser)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help setuser; }
+		[ $3 ] || { echo -e "Missing parameter: <username>\n"; help setuser; }
+		check_device_id $2 || { echo -e "Unknown device $2\n"; help setuser; }
+		setuser $2 $3
+	;;
+	settunnel)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help settunnel; }
+		[ $3 ] || { echo -e "Missing parameter: <port>\n"; help settunnel; }
+		settunnel $2 $3
+	;;
+	updatetunnels)
+		updatetunnels
+	;;
+	copy)
+		[ $2 ] || { echo -e "Missing parameter: <file>\n"; help copy; }
+		[ $3 ] || { echo -e "Missing parameter: <dev_id>\n"; help copy; }
+		check_device_id $2 || { echo -e "Unknown device $2\n"; help copy; }
+		copy $2 $3
+	;;
+	clearmsg)
+		clearmsg $2 
+	;;
+	cleardev)
+		cleardev $2 
+	;;
+	*)
+		[ $1 ] && echo "Unknown command: $1"
+		help
+	;;
+	esac
+}
+
+## Utility functions ##
+
+# Send message 
+# $1 = dev id
+# $2 = command
+# $3 = value
+function send_msg()
+{
+	# Add message to queue
+	if [ $1 == ALL ]; then
+		# Broadcast
+		for dev in $(query "SELECT id FROM devices;"); do
+			query "INSERT INTO messages(msgfrom, msgto, msg) VALUES('BDM','$dev','$2 $3');"
+		done
+	else
+		# Unicast
+		query $MSG_DB "INSERT INTO messages(msgfrom, msgto, msg) VALUES('BDM','$1','$2 $3');"
+
+		[ $NOWAIT ] && return 0
+
+		# Wait for message delivery
+		time=0
+		while [ true ]; do
+			rowid=$(query "SELECT * FROM messages WHERE msgto ='$1' AND msg='$2 $3';")
+			[ ${#rowid} -eq 0 ] && return 0
+			[ $((time++)) -eq $MSG_TIMEOUT ] && return 1
+			echo -n "."
+			sleep 1
+		done
+	fi
+}
+
+# Receive message 
+# $1 = dev id
+function recv_msg()
+{
+	# Wait for message 
+	time=0
+	while [ true ]; do
+		info=$(query "SELECT msg FROM messages WHERE msgfrom='$1';")
+		if [ ${#info} -gt 0 ]; then
+			echo
+			read_msg $1
+			return 0
+		fi
+		[ $((time++)) -eq $MSG_TIMEOUT ] && return 1
+		echo -n "."
+		sleep 1
+	done
+}
+
+# Check device ID
+# $1 = device id
+function check_device_id()
+{
+	if [ $(query "SELECT id FROM devices WHERE id='$1';") ]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+
+# Check forwarding port
+# $1 = port number
+function check_fwd_port()
+{
+	if [ $(netstat -lnt | grep -c "::1\?:$FWD_PORT\>") -gt 0 ]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+# Generate a valid SSH forwarding port
+function gen_fwd_port()
+{
+	# Test requested port number availability
+	if [ $FWD_PORT ]; then
+		if (check_fwd_port $FWD_PORT); then
+			echo "warning: $FWD_PORT not available"
+		else
+			return 0
+		fi
+	fi
+
+	# Find a random available port number
+	FWD_PORT=$(( RANDOM + 10000 ))
+	while (check_fwd_port $FWD_PORT); do
+		FWD_PORT=$(( RANDOM + 10000 ))
+	done
+}
+
+# Get dev currently used forwarding port
+# $1 = dev id
+function get_fwd_port()
+{
+	# Query tunnels db
+	FWD_PORT=$(query "SELECT port FROM tunnels WHERE id='$1' ORDER BY ts ASC LIMIT 1;")
+	[ $FWD_PORT ] || return 1
+}
+
+# Check tunnel availability
+# $1 = dev id
+# $2 = port number
+# rv = 0 if tunnel is active
+# rv = 1 if tunnel is not in DB
+# rv = 2 if tunnel is opening
+# rv = 3 if tunnel is expired
+function check_tunnel()
+{
+	if [ $2 ]; then
+		FWD_PORT=$2
+	else
+		get_fwd_port $1 || return 1
+	fi
+	
+	if check_fwd_port $FWD_PORT; then
+		return 0
+	else
+		query "DELETE FROM tunnels WHERE id='$1' AND port=$FWD_PORT AND ts<$(date +%s);"
+		get_fwd_port $1 && return 2 || return 3
+	fi
+}
+
+# Wait for tunnel availability
+# $1 = port number
+function wait_tunnel()
+{
+	echo -en "\nWaiting for tunnel establishment"
+	time=0
+	while [ true ]; do 
+		port=$(netstat -lnt | grep -c "127.0.0.1:$1")
+
+		if [ $port -ge 1 ]; then
+			echo -e "\nTunnel ready on 127.0.0.1:$1"
+			return 0
+		elif [ $((time++)) -eq $SSH_PORT_FWD_WAIT ]; then 
+			echo "Error: tunnel not found"
+			return 1
+		fi
+
+		echo -n "." 
+		sleep 1
+	done
+}
+
+# Send notification by email
+# $1 = dev id
+# $2 = message
+function sendmail ()
+{
+	# Expand @filename if present
+	if [ ${1:0:1} == "@" ]; then
+		msg=$(cat ${1:1})
+		id=$(basename $1)
+	else
+		msg=$2
+		id=$1
+	fi
+
+	# Send email to admins
+	/usr/sbin/sendmail -t <<-end
+		From: "Bismark Device Manager" <do-not-reply@gtnoise.net>
+		To: "Walter" <walter.dedonato@unina.it>, "Brian" <bpoole@cc.gatech.edu>, "Srikanth" <srikanth@gatech.edu>
+		Subject: Bismark Notification System ($id)
+		Date: $(date -R)
+		Content-type: text/plain
+
+		$msg
+
+		-- BDM
+	end
+}
+
+# Set device tunnel entry
+# $1 = dev id
+# $2 = port
+function settunnel()
+{
+	echo -n "Setting tunnel db entry for $1 on port $2..."
+	query "INSERT INTO tunnels (id, port, ts) VALUES('$1',$2,$(date +%s));"
+	echo done
+	
+	# Send notification email
+	sendmail $1 "Recovery tunnel created for $1 on port $2"
+}
+
+# Update the tunnel list from ps and netstat outputs
+function updatetunnels()
+{
+	echo -n "Updating tunnels..."
+	echo done
+}
+
+## User command functions ##
+
+# Start new tunnel
+# $1 = dev id
+# $2 = ip:port
+function start_tunnel()
+{
+	if [ ! $2 ] && check_tunnel $1; then 
+		echo "Tunnel to $1 listening on 127.0.0.1:$FWD_PORT" 
+		return 1
+	fi
+	gen_fwd_port
+
+	if [ $2 ]; then
+		echo "Starting SSH tunnel to dev $1 on port $FWD_PORT (to $2)"
+		send_msg $1 fwd $FWD_PORT:$2 || { echo -e "\nDelivery to $1 failed"; return 2; }
+	else
+		echo "Starting SSH tunnel to dev $1 on port $FWD_PORT"
+		send_msg $1 fwd $FWD_PORT || { echo -e "\nDelivery to $1 failed"; return 2; }
+	fi
+
+	[ $NOWAIT ] || wait_tunnel $FWD_PORT || return 3
+}
+
+# Connect to the SSH server on the dev
+# $1 = dev id
+# $* = optional shell command
+function console()
+{
+	if [ ! $FWD_PORT ]; then 
+		start_tunnel $1
+		case $? in
+		0) new=1 ;;
+		2) return 1;;
+		esac
+	fi
+
+	[ $2 ] && { p=$* ; cmd=${p#* } ; }
+	SSH_USER=$(query "SELECT duser FROM devices WHERE id='$1'")
+	[ $SSH_USER ] || SSH_USER=root
+	if [ "$cmd" == bg ]; then
+		ssh $SSH_USER@127.0.0.1 -p $FWD_PORT $SSH_OPTIONS -i $SSH_KEY 2>/dev/null &
+	else
+		ssh $SSH_USER@127.0.0.1 -p $FWD_PORT $SSH_OPTIONS -i $SSH_KEY $cmd 2>/dev/null
+		[ $new ] && stop_tunnel $1
+	fi
+}
+
+# Stop active tunnel
+# $1 = dev id
+# $2 = port number
+function stop_tunnel()
+{
+	if ! check_tunnel $1 $2; then
+		echo "Tunnel expired"
+		return 1 
+	fi
+
+	echo "Stopping SSH tunnel to device $1 on port $FWD_PORT"
+	pid=$(sudo netstat -lntp | grep "::1\?:$FWD_PORT\>" | awk '{ print $7 }')
+	kill ${pid%/*}
+
+	if (check_fwd_port $FWD_PORT); then
+		echo "Unable to close tunnel"
+	else
+		echo "Tunnel closed"
+		query "DELETE FROM tunnels WHERE id='$1' AND port=$FWD_PORT;"
+	fi
+}
+
+# Start global tunnels
+# $1 = dev id
+# $2 = port
+function start_gtunnel()
+{
+	if [ $2 ]; then 
+		if check_tunnel $1 $2; then 
+			echo "Tunnel listening on port $FWD_PORT" 
+			return 1
+		fi
+		tport=$2
+	else
+		gen_fwd_port
+		tport=$FWD_PORT
+		FWD_PORT=""
+	fi
+
+	SSH_OPTIONS="-N -L $tport:127.0.0.1:22 -g $SSH_OPTIONS"
+	console $1 bg
+	sleep 1
+
+	if (check_fwd_port $tport); then
+		settunnel $1 $tport
+		echo "Tunnel listening on 0.0.0.0:$tport"
+	else
+		echo "Unable to open tunnel"
+	fi
+}
+
+# Update device software
+# $1 = dev id
+# $2 = URL
+function upgrade()
+{
+	echo "Upgrading $1"
+
+	# Create last release packages
+	for p in $(find ~/bismark/device -maxdepth 1 -name "*_*" -printf "%f\n"); do
+		(
+		 cd ~/bismark/device/$p
+		 [ -e ./make_package ] && { ./make_package update && ./make_package install ; }
+		)
+	done
+
+	# Start upgrade script
+	echo "Executing upgrade:"
+	if check_tunnel $1; then
+		console $1 "~/scripts/action" update "$2"
+	else
+		# Send message
+		send_msg $1 update "$2" || { [ $1 == ALL ] && echo done || { echo -e "\nDelivery to $1 pending"; return 1; } ; }
+
+		# Wait reply
+		echo -e "\nWaiting for upgrade log:"
+		if [ $1 == ALL ]; then
+			for ((i=$MSG_TIMEOUT;i>0;i--)); do
+				echo -ne "Remaining $i seconds  \r"
+				sleep 1
+			done
+			echo
+			read_msg
+		else
+			recv_msg $1 || { echo -e "\nNo messages from $id"; return 2; } 
+		fi
+	fi
+}
+
+# Show/push configuration options
+# $1 = dev id
+# $* = options
+function config()
+{
+	id=$1
+	shift
+	
+	params=$(echo $* | tr ' ' '&')
+	echo -n "Sending config request to $id"
+	send_msg $id config $params || { echo -e "\nDevice $id not found"; return 1; }
+	
+	# Wait reply
+	echo -e "\nWaiting for config log:"
+	if [ $id == ALL ]; then
+		for ((i=$MSG_TIMEOUT;i>0;i--)); do
+			echo -ne "Remaining $i seconds  \r"
+			sleep 1
+		done
+		echo
+		read_msg
+	else
+		recv_msg $id || { echo -e "\nNo messages from $id"; return 2; }
+	fi
+}
+
+# List active devices and tunnels
+# $1 = update flag
+function list()
+{
+	# Dump devices table
+	echo -e "${BLUE}Latest version: ${WHITE}$VERSION"
+	echo -e "${BLUE}\nDevices:"
+	echo -ne "${WHITE}"
+	printf "%-16s %-15s %-7s %-20s %-10s\n" ID IP VERSION LAST_PROBE USER
+	IFS=$'\n' 
+	for dev in $(query 'SELECT id,ip,bversion,ts,duser FROM devices ORDER BY id;'); do
+		IFS=$'|' read id ip ver ts user <<< "$dev"
+		off_time=$(( $(date +%s) - $ts ))
+		[ "$user" ] || user=root
+		if [ $off_time -lt 300 ]; then
+			echo -ne $GREEN
+		elif [ $off_time -lt 600 ]; then
+			echo -ne $YELLOW
+		else
+			[ "$1" == log -a $off_time -lt 900 ] && echo "$(date +"%Y-%m-%d %H:%M:%S") - Device $id went offline" >> /tmp/devices.log
+			echo -ne $RED
+		fi
+		# [ $(mysql -NB -u root -e "SELECT deviceid FROM DEVICES WHERE deviceid='$id'" $MYSQL_DB)  ] || printf "#"
+		printf "%-16s %-15s %-7s %-20s %-10s\n" $id $ip $ver $(date -d @$ts +"%Y-%m-%d %H:%M:%S") $user
+	done
+	[ "$1" == "notify" ] && ( sendmail "@/tmp/devices.log" ; rm /tmp/devices.log )
+
+	# Dump tunnels table
+	echo -e "${BLUE}\nTunnels:"
+	echo -ne "${WHITE}"
+	printf "%-16s %-5s %-20s\n" ID PORT START_TIME
+
+	IFS=$'\n' 
+	for dev in $(query 'SELECT * FROM tunnels ORDER BY id;'); do
+		IFS=$'|' read id port ts <<< "$dev"
+		check_tunnel $id $port
+		if [ $? -eq 0 ]; then
+			echo -ne $GREEN
+		elif [ $? -eq 2 ]; then
+			echo -ne $YELLOW
+		else
+			echo -ne $RED
+		fi
+		printf "%-16s %-5s %-20s\n" $id $port $(date -d @$ts +"%Y-%m-%d %H:%M:%S")
+	done
+	echo -ne $NO_COLOR
+
+	# Dump messages table
+	echo -e "${BLUE}\nPending Messages:"
+	echo -e "${WHITE}ID\tFROM\tTO\tMESSAGE"
+	echo -ne $MAGENTA
+	IFS=$'\n' 
+	for message in $(query 'SELECT * FROM messages ORDER BY msgfrom,msgto;'); do
+		IFS=$'|' read from to msg <<< "$message"
+		printf "%s\t%s\t%s\n" $from $to $msg
+	done
+	echo -ne $NO_COLOR
+}
+
+# List measurement servers info
+function mslist()
+{
+	# Dump measure servers table with capabilities
+	echo -e "${BLUE}\nMeasurement Servers:"
+	echo -ne "${WHITE}"
+	printf "%-15s %-8s %-11s %s\n" IP ZONE FREE_TS SERVICES
+	IFS=$'\n' 
+	for ms in $(query 'SELECT ip,zone,free_ts FROM targets ORDER BY ip;'); do
+		IFS=$'|' read ip zone ts <<< "$ms"
+
+		#off_time=$(( $(date +%s) - $ts ))
+		#[ "$user" ] || user=root
+		#if [ $off_time -lt 300 ]; then
+			echo -ne $GREEN
+		#elif [ $off_time -lt 600 ]; then
+		#	echo -ne $YELLOW
+		#	[ $2 ] && sendmail $id "MServer $id went offline"
+		#else
+		#	echo -ne $RED
+		#fi
+
+		printf "%-15s %-8s %-11s " $ip $zone $ts
+		
+		for cap in $(query 'SELECT service,info FROM capabilities WHERE ip="'$ip'" ORDER BY service;'); do
+			IFS=$'|' read serv info <<< "$cap"
+
+			printf "${BLUE}(${MAGENTA}%s${BLUE},${MAGENTA}%s${BLUE})" $serv $info
+		done
+		printf "\n"
+	done
+
+	# Dump measure servers table with capabilities
+	echo -e "${BLUE}\nMeasure Service Types:"
+	echo -ne "${WHITE}"
+	printf "%-10s %s\n" TYPE MUTEX
+	echo -ne $MAGENTA
+
+	IFS=$'\n' 
+	for ms in $(query 'SELECT mtype,mexclusive FROM mtypes ORDER BY type;'); do
+		IFS=$'|' read tp mutex <<< "$ms"
+
+		[ $mutex -eq 0 ] && mutex=no || mutex=yes
+		printf "%-10s %s\n" $tp $mutex
+	done
+
+	echo -ne $NO_COLOR
+}
+
+# Copy file to device /tmp directory
+# $1 = file
+# $2 = dev id
+function copy()
+{
+	if [ ! $FWD_PORT ]; then 
+		start_tunnel $2
+		case $? in
+		0) new=1 ;;
+		2) return 1;;
+		esac
+	fi
+
+	SSH_USER=$(query "SELECT duser FROM devices WHERE id='$2'")
+	[ $SSH_USER ] || SSH_USER=root
+	scp -P $FWD_PORT $SSH_OPTIONS -i $SSH_KEY $1 $SSH_USER@127.0.0.1:/tmp 2>/dev/null 
+}
+
+# Read messages
+# $1 = id
+function read_msg()
+{
+	if [ $1 ]; then
+		rows=$(query "SELECT * FROM messages WHERE msgfrom='$1';")
+	else
+		rows=$(query "SELECT * FROM messages WHERE msgto='BDM';")
+	fi
+
+	if [ ${#rows} -gt 0 ]; then
+		IFS=$'\n'
+		for row in $rows; do
+			IFS=$'|' read rowid from to msg <<< "$row"
+			echo "Message from $from: $msg"
+			echo "------------------------"
+			awk '
+				BEGIN{ out = 0 }
+				/^END - '$msg'/{ exit }
+				(out == 1){ print }
+				/'$msg'/{ out=1 }
+			' ~/var/log/devices/$from.log
+			echo "------------------------"
+
+			query "DELETE FROM messages WHERE rowid='$mid';"
+		done
+	else
+		echo "No incoming messages"
+	fi
+}
+
+# Add remove device from blacklist
+# $1 = dev id
+# $2 = on|off
+function blacklist ()
+{
+	if [ $1 ]; then
+		case $2 in
+		on) 
+			query "INSERT INTO blacklist (id) VALUES('$1');"
+			echo -e "Added $1 to blacklist\n"
+		;;
+		off) 
+			query "DELETE FROM blacklist WHERE id='$1';" 
+			echo -e "Removed $1 from blacklist\n"
+		;;
+		esac	
+	fi
+
+	echo -e "${WHITE}Blacklisted devices:${RED}"
+	query "SELECT id FROM blacklist;"
+	echo -ne $NO_COLOR
+}
+
+## Internal commands ##
+
+# Set device SSH username
+# $1 = dev id
+# $2 = username
+function setuser()
+{
+	echo -n "Setting $1 SSH user to $2..."
+	if [ $(query "SELECT id FROM devices WHERE id='$1';") ]; then
+		query "UPDATE devices SET duser='$2' WHERE id='$1';"
+	else
+		query "INSERT INTO devices (id, duser) VALUES('$1','$2');"
+	fi
+	echo done
+}
+
+# Clear pending messages
+# $1 = id
+function clearmsg()
+{
+	if [ $1 ]; then
+		query "DELETE FROM messages WHERE rowid=$1;"
+	else
+		echo "Delete all pending messages (y/N)?"
+		read a
+		[ $a == "y" ] && query "DELETE FROM messages;"
+	fi
+}
+
+# Clear pending messages
+# $1 = id
+function cleardev()
+{
+	if [ $1 ]; then
+		query "DELETE FROM devices WHERE id=\"$1\";"
+	else
+		echo "Delete all devices (yes/no)?"
+		read a
+		[ $a == "yes" ] && query "DELETE FROM devices;"
+	fi
+}
+
+## Main ##
+
+# Set random seed
+RANDOM=$(( `date +%s` % 32767 ))
+# Parse command-line
+parse $*
+

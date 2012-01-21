@@ -1,0 +1,44 @@
+# Bismark device manager configuration file
+PATH="$HOME/bin:/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/bin"
+
+# UDP Probing options
+SERVER_ADDR=prober.projectbismark.net
+PROBE_PORTS="1028 1234 5353 54321"
+
+# Messaging options
+MSG_TIMEOUT=80
+
+# SSH Client options
+SSH_KEY=~/bismark/server/keys/bismark_srv
+SSH_PORT_FWD_WAIT=20
+SSH_OPTIONS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# Files and Directories
+VAR_DIR=~/var
+DB_SRC=~/db
+BDMD_LOG_FILE=$VAR_DIR/log/bdmd.log
+
+# Misc
+VERSION=$(cd ~/bismark ; git log --pretty=format:'' | wc -l)
+DEV_TYPES="LS NB WS"
+
+# Colors
+RED='\e[1;31m'
+GREEN='\e[1;32m'
+YELLOW='\e[1;33m'
+BLUE='\e[1;34m'
+MAGENTA='\e[1;35m'
+CYAN='\e[1;36m'
+WHITE='\e[1;37m'
+NO_COLOR='\e[0m'
+
+## bdmd Configuration
+export BDMD_LOG_FILE=$VAR_DIR/log/bdmd.log
+#export BDMD_TXPG_CONNPOOL=5
+#export BDMD_TIME_ERROR=2
+#export BDMD_MAX_DELAY=300
+#export BDMD_TCP_KEEPIDLE=10
+#export BDMD_TCP_KEEPCNT=2
+#export BDMD_TCP_KEEPINTVL=10
+#export BDMD_DEBUG=0
+

@@ -1,0 +1,1 @@
+no-pty,command="bin/brsh" ssh-rsa BOGUS_PUBLIC_KEY_MATERIAL bismark@bismark
