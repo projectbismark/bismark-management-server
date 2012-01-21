@@ -475,19 +475,19 @@ if __name__ == '__main__':
     print_debug = print_debug_factory(int(conf['BDMD_DEBUG']) != 0)
     print_debug(conf)
 
-    ph = ProbeHandler(conf)
-    listeners = 0
+    probehandlers = []
     for port in (int(x) for x in sys.argv[1:]):
         if 1024 <= port <= 65535:
+            ph = ProbeHandler(conf)
             reactor.listenUDP(port, ph)
+            probehandlers.append(ph)
             print("Listening on port %d" % port)
-            listeners += 1
         else:
             print_error("Invalid port %d" % port)
-    if listeners > 0:
-        reactor.addSystemEventTrigger('before', 'startup', ph.start)
-        reactor.addSystemEventTrigger('before', 'shutdown', ph.stop)
-        reactor.run()
-    else:
+    if len(probehandlers) == 0:
         print_error("Not listening on any ports. Terminating.")
         sys.exit(1)
+    for ph in probehandlers:
+        reactor.addSystemEventTrigger('before', 'startup', ph.start)
+        reactor.addSystemEventTrigger('before', 'shutdown', ph.stop)
+    reactor.run()
