@@ -246,7 +246,7 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def check_blacklist(self, probe):
         d = self.dbpool.runQuery(
-                "SELECT id FROM blacklist where id=%s;", [probe.id])
+                "SELECT device_id FROM blacklist where id=%s;", [probe.id])
         return d.addCallback(self.check_blacklist_qh, probe)
 
     @print_entry
@@ -309,53 +309,66 @@ class ProbeHandler(DatagramProtocol):
         except ClientRequestException as cre:
             return defer.fail(cre)
 
-        d = self.dbpool.runQuery((
-                "SELECT t.ip, c.info, t.free_ts, t.curr_cli, t.max_cli, "
-                "       mt.mexclusive "
-                "FROM targets as t, capabilities as c, "
-                "     device_targets as dt, mtypes as mt "
-                "WHERE dt.device = %s "
-                "      AND dt.priority >= 0 "
-                "      AND dt.server = c.ip "
-                "      AND c.service = %s "
-                "      AND dt.server = t.ip "
-                "      AND t.cat = %s "
-                "      AND mt.mtype = c.service "
-                "      AND (mt.mexclusive = 0 OR "
-                "           (mt.mexclusive = 1 AND "
-                "            t.free_ts < %s)) "
-                "ORDER BY dt.priority DESC, t.free_ts ASC "
-                "LIMIT 1;"), [probe.id, mreq.type, mreq.category,
-                probe.time_ts + self.config['max_delay']])
-        return d.addCallback(self.handle_measure_req_qh, probe, mreq)
+        return self.dbpool.runInteraction(
+                self.measure_req_interaction, probe, mreq)
 
     @print_entry
-    def handle_measure_req_qh(self, resultset, probe, mreq):
+    def measure_req_interaction(self, cursor, probe, mreq):
+        d = cursor.execute((
+            "SELECT t.ip, c.info, t.free_ts, t.curr_cli, t.max_cli, "
+            "       mt.mexclusive "
+            "FROM targets as t, capabilities as c, "
+            "     device_targets as dt, mtypes as mt "
+            "WHERE dt.device_id = %s "
+            "      AND dt.target_ip = t.ip "
+            "      AND dt.target_ip = c.target_ip "
+            "      AND dt.priority > 0 "
+            "      AND c.service = %s "
+            "      AND t.cat = %s "
+            "      AND t.available = TRUE "
+            "      AND mt.mtype = c.service "
+            "      AND (mt.mexclusive = FALSE OR "
+            "           (mt.mexclusive = TRUE AND "
+            "            t.free_ts < %s)) "
+            "ORDER BY dt.priority DESC, t.free_ts ASC "
+            "LIMIT 1 "
+            # IMPORTANT: 'FOR UPDATE' locks the selected row for update below
+            "FOR UPDATE OF t;"
+            ), [probe.id, mreq.type, mreq.category,
+            probe.time_ts + self.config['max_delay']])
+        return d.addCallback(self.measure_req_qh, probe, mreq)
+
+    @print_entry
+    def measure_req_qh(self, cursor, probe, mreq):
         d = None
+        resultset = cursor.fetchone()
         if resultset:
-            # these are all target ("t_") characteristics
-            t_ip        = resultset[0][0]
-            t_info      = resultset[0][1]
-            t_free_ts   = int(resultset[0][2])
-            t_curr_cli  = int(resultset[0][3])
-            t_max_cli   = int(resultset[0][4])
-            t_exclusive = (int(resultset[0][5]) == 1)
+            # time_error is a correction factor for processing & comm. time
+            measure_start = probe.time_ts + self.config['time_error']
             delay = 0
+
+            # these are all target ("t_") characteristics
+            t_ip        = resultset[0]
+            t_info      = resultset[1]
+            t_free_ts   = int(resultset[2])
+            t_curr_cli  = int(resultset[3])
+            t_max_cli   = int(resultset[4])
+            t_exclusive = (resultset[5] == True)
 
             if t_exclusive:
                 if t_free_ts > probe.time_ts:
                     delay = t_free_ts - probe.time_ts
-                d = self.dbpool.runOperation(
+                    measure_start += delay
+                d = cursor.execute(
                         "UPDATE targets SET free_ts=%s WHERE ip=%s;",
-                        [probe.time_ts + delay + mreq.duration +
-                        self.config['time_error'], t_ip])
+                        [measure_start + mreq.duration, t_ip])
                 d.addCallback(lambda _: probe)
             else:
                 d = defer.succeed(probe)
             probe.reply = '%s %s %d\n' % (t_ip, t_info, delay)
             print(("%s - Scheduled %s measure from %s to %s at %d for %s "
                     "seconds" % (probe.time_str, mreq.type, probe.id, t_ip,
-                    probe.time_ts + delay + 10, mreq.duration)))
+                    measure_start, mreq.duration)))
         else:
             probe.reply = ' '
             print("%s - No target available for %s measurement from %s" %
