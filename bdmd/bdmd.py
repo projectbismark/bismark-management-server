@@ -21,30 +21,38 @@ REQ_ENV_VARS = ['VAR_DIR',
 
 # each optional item consists of a tuple (var_name, default_value)
 OPT_ENV_VARS = [('BDM_PG_PORT', 5432),
-                ('BDM_TXPG_CONNPOOL', 5),
-                ('BDM_TIME_ERROR', 2),
-                ('BDM_MAX_DELAY', 300),
-                ('BDM_DB_QUERY_TIMEOUT', 30),
-                ('BDM_DB_RECON_TIMEOUT', 120),
+                ('BDMD_TXPG_CONNPOOL', 5),
+                ('BDMD_TIME_ERROR', 2),
+                ('BDMD_MAX_DELAY', 300),
+                ('BDMD_TCP_KEEPIDLE', 10),
+                ('BDMD_TCP_KEEPCNT', 2),
+                ('BDMD_TCP_KEEPINTVL', 10),
+                ('BDMD_DEBUG', 0),
                 ]
 LOG_SUBDIR = 'log/devices'
 
-
-def print_debug(s):
-    print(s)
+def print_debug_factory(is_debug):
+    if is_debug:
+        def f(s):
+            print(s)
+    else:
+        def f(s):
+            pass
+    return f
 
 
 def print_error(s):
     sys.stderr.write("%s\n" % s)
 
 
-def debug_print_entry(f):
+def print_entry(f):
     def wrapper(*args, **kwargs):
         print_debug(f.func_name)
         return f(*args, **kwargs)
     return wrapper
 
 
+# lifted from https://github.com/markokr/skytools -- MITish license
 def set_tcp_keepalive(fd, keepalive = True,
                      tcp_keepidle = 4 * 60,
                      tcp_keepcnt = 4,
@@ -64,7 +72,6 @@ def set_tcp_keepalive(fd, keepalive = True,
     >>> s = socket.socket()
     >>> set_tcp_keepalive(s)
 
-    (from https://github.com/markokr/skytools -- MITish license)
     """
 
     # usable on this OS?
@@ -150,7 +157,7 @@ class MeasurementRequest(object):
             self.type = payload_parts[1]
             self.zone = payload_parts[2]
             self.duration = int(payload_parts[3])
-        except IndexError, ValueError:
+        except (IndexError, ValueError):
             raise ClientRequestException(
                     "Measurement request '%s' incorrectly formatted" % payload)
 
@@ -183,11 +190,14 @@ def eb_print(x):
 
 class ProbeHandler(DatagramProtocol):
     def __init__(self, config):
-        txpostgres.Connection.connectionFactory=self._tcp_connfactory(
-                tcp_params=None)
+        txpostgres.Connection.connectionFactory = self._tcp_connfactory({
+                'tcp_keepidle'  : int(config['BDMD_TCP_KEEPIDLE']),
+                'tcp_keepcnt'   : int(config['BDMD_TCP_KEEPCNT']),
+                'tcp_keepintvl' : int(config['BDMD_TCP_KEEPINTVL']),
+                })
         self.dbpool = txpostgres.ConnectionPool(
                 None,
-                min=int(config['BDM_TXPG_CONNPOOL']),
+                min=int(config['BDMD_TXPG_CONNPOOL']),
                 host=config['BDM_PG_HOST'],
                 port=int(config['BDM_PG_PORT']),
                 database=config['BDM_PG_DBNAME'],
@@ -198,10 +208,11 @@ class ProbeHandler(DatagramProtocol):
         self.config = {}
         self.config['logdir'] = os.path.join(
                 os.path.abspath(config['VAR_DIR']), LOG_SUBDIR)
-        self.config['max_delay'] = int(config['BDM_MAX_DELAY'])
-        self.config['time_error'] = int(config['BDM_MAX_DELAY'])
+        self.config['max_delay'] = int(config['BDMD_MAX_DELAY'])
+        self.config['time_error'] = int(config['BDMD_TIME_ERROR'])
 
     def datagramReceived(self, data, (host, port)):
+        # TODO maybe this should be done with a queue instead
         try:
             p = Probe(data, host)
         except ClientRequestException as cre:
@@ -218,7 +229,7 @@ class ProbeHandler(DatagramProtocol):
         d.addErrback(self.client_error_handler)
         d.addErrback(eb_print)
 
-    @debug_print_entry
+    @print_entry
     def db_error_handler(self, failure):
         # TODO: http://archives.postgresql.org/psycopg/2011-02/msg00039.php
         failure.trap(psycopg2.Error)
@@ -226,19 +237,19 @@ class ProbeHandler(DatagramProtocol):
         print(dir(failure.value))
         print(failure.value)
 
-    @debug_print_entry
+    @print_entry
     def client_error_handler(self, failure):
         failure.trap(ClientRequestException)
         print("trapped ClientRequestException")
         print(failure.value)
 
-    @debug_print_entry
+    @print_entry
     def check_blacklist(self, probe):
         d = self.dbpool.runQuery(
                 "SELECT id FROM blacklist where id=%s;", [probe.id])
         return d.addCallback(self.check_blacklist_qh, probe)
 
-    @debug_print_entry
+    @print_entry
     def check_blacklist_qh(self, resultset, probe):
         # TODO being on the blacklist could be handled with an errback with a
         #      special blacklist exception...
@@ -246,7 +257,7 @@ class ProbeHandler(DatagramProtocol):
             probe.blacklisted = True
         return defer.succeed(probe)
 
-    @debug_print_entry
+    @print_entry
     def dispatch_response(self, probe):
         d = None
         if not probe.blacklisted:
@@ -258,12 +269,12 @@ class ProbeHandler(DatagramProtocol):
                 d = self.handle_measure_req(probe)
         return d
 
-    @debug_print_entry
+    @print_entry
     def send_reply(self, probe, (host, port)):
         if probe and probe.reply:
             self.transport.write("%s" % probe.reply, (host, port))
 
-    @debug_print_entry
+    @print_entry
     def handle_log_req(self, probe):
         print("%s - Received log from %s: %s" %
                 (probe.time_str, probe.id, probe.param))
@@ -277,7 +288,9 @@ class ProbeHandler(DatagramProtocol):
                     (probe.time_str, probe.param, probe.payload, probe.param))
             logfile.close()
         except IOError as ioe:
-            raise ioe  # TODO should this be return defer.fail(ioe)? -- should amount to the same thing?
+            # TODO should this be return defer.fail(ioe)?
+            #      or should this amount to the same thing?
+            raise ioe
         finally:
             # send message to bdm client
             d = self.dbpool.runOperation(
@@ -285,7 +298,7 @@ class ProbeHandler(DatagramProtocol):
                     "VALUES (%s, 'BDM', %s);"), [probe.id, probe.param])
             return d.addCallback(lambda _: None)
 
-    @debug_print_entry
+    @print_entry
     def handle_measure_req(self, probe):
         try:
             # in the case of measurement request probes, the payload actually
@@ -316,7 +329,7 @@ class ProbeHandler(DatagramProtocol):
                 probe.time_ts + self.config['max_delay']])
         return d.addCallback(self.handle_measure_req_qh, probe, mreq)
 
-    @debug_print_entry
+    @print_entry
     def handle_measure_req_qh(self, resultset, probe, mreq):
         d = None
         if resultset:
@@ -350,20 +363,20 @@ class ProbeHandler(DatagramProtocol):
             d = defer.succeed(probe)
         return(d)
 
-    @debug_print_entry
+    @print_entry
     def handle_ping_req(self, probe):
         d = self.register_device(probe)
         d.addCallback(self.check_messages)
         d.addCallback(self.prepare_reply, probe)
         return(d)
 
-    @debug_print_entry
+    @print_entry
     def register_device(self, probe):
         d = self.dbpool.runQuery(
                 "SELECT id FROM devices where id=%s;", [probe.id])
         return d.addCallback(self.register_device_qh, probe)
 
-    @debug_print_entry
+    @print_entry
     def register_device_qh(self, resultset, probe):
         if resultset:
             query = ("UPDATE devices SET ip=%s, ts=%s, bversion=%s "
@@ -375,7 +388,7 @@ class ProbeHandler(DatagramProtocol):
                 query, [probe.ip, probe.time_ts, probe.param, probe.id])
         return d.addCallback(lambda _: probe)
 
-    @debug_print_entry
+    @print_entry
     def check_messages(self, probe):
         d = self.dbpool.runQuery(("SELECT rowid, msgfrom, msgto, msg "
                 "FROM messages WHERE msgto=%s LIMIT 1;"), [probe.id])
@@ -418,13 +431,13 @@ class ProbeHandler(DatagramProtocol):
         reactor.stop()
 
     @staticmethod
-    def _tcp_connfactory(tcp_params):
+    def _tcp_connfactory(params):
         def connect(*args, **kwargs):
             conn = psycopg2.connect(*args, **kwargs)
             set_tcp_keepalive(conn.fileno(),
-                              tcp_keepidle=10,
-                              tcp_keepcnt=2,
-                              tcp_keepintvl=10)
+                              tcp_keepidle=params['tcp_keepidle'],
+                              tcp_keepcnt=params['tcp_keepcnt'],
+                              tcp_keepintvl=params['tcp_keepintvl'])
             return conn
         return staticmethod(connect)
 
@@ -434,18 +447,21 @@ if __name__ == '__main__':
         print_error("  USAGE: %s PORT..." % sys.argv[0])
         sys.exit(1)
 
-    config = {}
+    conf = {}
     for evname in REQ_ENV_VARS:
         try:
-            config[evname] = os.environ[evname]
+            conf[evname] = os.environ[evname]
         except KeyError:
             print_error(("Environment variable '%s' required and not defined. "
                          "Terminating.") % evname)
             sys.exit(1)
     for (evname, default_val) in OPT_ENV_VARS:
-        config[evname] = os.environ.get(evname) or default_val
+        conf[evname] = os.environ.get(evname) or default_val
 
-    ph = ProbeHandler(config)
+    print_debug = print_debug_factory(int(conf['BDMD_DEBUG']) != 0)
+    print_debug(conf)
+
+    ph = ProbeHandler(conf)
     listeners = 0
     for port in (int(x) for x in sys.argv[1:]):
         if 1024 <= port <= 65535:
