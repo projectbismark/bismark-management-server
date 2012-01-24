@@ -13,6 +13,7 @@ CREATE DOMAIN cli_t AS integer;
 CREATE DOMAIN prio_t AS integer;
 CREATE DOMAIN info_t AS varchar(500);
 CREATE DOMAIN mtype_t AS varchar(50);
+CREATE DOMAIN fqdn_t AS varchar(255);
 
 CREATE TABLE devices (
     id          id_t        PRIMARY KEY,
@@ -23,7 +24,7 @@ CREATE TABLE devices (
 );
 
 CREATE TABLE tunnels (
-    device_id   id_t        NOT NULL,
+    device_id   id_t        NOT NULL REFERENCES devices (id),
     port        integer     NOT NULL,
     ts          ts_t        NOT NULL,
     PRIMARY KEY (device_id, port)
@@ -37,7 +38,9 @@ CREATE TABLE messages (
 );
 
 CREATE TABLE targets (
-    ip          ip_t        PRIMARY KEY,
+    id          serial      UNIQUE,
+    fqdn        fqdn_t      PRIMARY_KEY,
+    ip          ip_t,
     cat         cat_t       NOT NULL,
     zone        zone_t      NOT NULL,
     free_ts     ts_t        NOT NULL DEFAULT 0,
@@ -47,17 +50,17 @@ CREATE TABLE targets (
 );
 
 CREATE TABLE device_targets (
-    device_id   id_t        NOT NULL,
-    target_ip   ip_t        NOT NULL,
+    device_id   id_t        NOT NULL REFERENCES devices (id),
+    target_id   integer     NOT NULL REFERENCES targets (id),
     priority    prio_t      NOT NULL DEFAULT 0,
-    PRIMARY KEY (device_id, target_ip)
+    PRIMARY KEY (device_id, target_id)
 );
 
 CREATE TABLE capabilities (
-    target_ip   ip_t        NOT NULL,
-    service     mtype_t     NOT NULL,
+    target_id   integer     NOT NULL REFERENCES targets (id),
+    service     mtype_t     NOT NULL REFERENCES mtypes (mtype),
     info        info_t      NOT NULL,
-    PRIMARY KEY (target_ip, service)
+    PRIMARY KEY (target_id, service)
 );
 
 CREATE TABLE mtypes (
