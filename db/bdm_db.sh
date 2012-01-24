@@ -3,8 +3,7 @@
 set -o nounset  # Don't allow uninitialized variables to be used
 set -o errexit  # Die if a function returns non-zero
 
-#source ~/etc/bdm_db.conf
-source ../bdmd/bdm_db.conf
+source ~/etc/bdm_db.conf
 
 default_BDM_PG_HOST='localhost'
 default_BDM_PG_PORT='5432'
