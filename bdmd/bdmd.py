@@ -316,25 +316,26 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def measure_req_interaction(self, cursor, probe, mreq):
         d = cursor.execute((
-                "SELECT t_id, ti.ip, ts.info, t.free_ts, t.curr_cli, "
+                "SELECT t.id, ti.ip, ts.info, t.free_ts, t.curr_cli, "
                 "   t.max_cli, s.is_exclusive "
                 "FROM targets as t, target_ips as ti, target_services as ts, "
                 "   services as s, device_targets as dt "
                 "WHERE dt.device_id = %s "
-                "   AND dt.priority > 0 "
+                "   AND dt.preference > 0 "
+                "   AND t.id = dt.target_id "
                 "   AND t.available = TRUE "
                 "   AND ti.target_id = dt.target_id "
                 "   AND ti.date_effective = ( "
                 "       SELECT max(ti2.date_effective) "
                 "       FROM target_ips as ti2 "
                 "       WHERE ti2.target_id = ti.target_id "
-                "       GROUP BY ti2.target_id;) "
+                "       GROUP BY ti2.target_id) "
                 "   AND ts.target_id = dt.target_id "
                 "   AND ts.service_id = s.id"
                 "   AND s.name = %s "
                 "   AND (s.is_exclusive = FALSE OR "
                 "        (s.is_exclusive = TRUE AND t.free_ts < %s)) "
-                "ORDER BY dt.priority DESC, t.free_ts ASC "
+                "ORDER BY dt.preference DESC, t.free_ts ASC "
                 "LIMIT 1 "
                 "FOR UPDATE OF t;"  # N.B. 'FOR UPDATE' locks the selected row
                                     #      for the coming update below
