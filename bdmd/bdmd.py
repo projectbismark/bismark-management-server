@@ -402,10 +402,10 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def register_device_qh(self, resultset, probe):
         if resultset:
-            query = ("UPDATE devices SET ip=%s, ts=%s, bversion=%s "
+            query = ("UPDATE devices SET ip=%s, last_seen_ts=%s, bversion=%s "
                     "WHERE id=%s;")
         else:
-            query = ("INSERT INTO devices (ip, ts, bversion, id) "
+            query = ("INSERT INTO devices (ip, last_seen_ts, bversion, id) "
                     "VALUES (%s, %s, %s, %s);")
         d = self.dbpool.runOperation(
                 query, [probe.ip, probe.time_ts, probe.param, probe.id])
