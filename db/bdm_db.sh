@@ -98,8 +98,8 @@ create_tables)
 drop_tables)
     if tables_exist; then
         echo "I'm not willing to do this automatically, Dave."
-        echo -n "Try running: $psqlcmd"
-        echo " -c 'DROP SCHEMA public CASCADE $BDM_PG_DBNAME'"
+        echo -n "Try running: $psqlcmd_db"
+        echo " -c 'DROP SCHEMA public CASCADE;'"
     else
         echo "There are no tables in '$BDM_PG_DBNAME'."
     fi
@@ -108,7 +108,7 @@ drop_db)
     if db_exists; then
         echo "I'm not willing to do this automatically, Dave."
         echo -n "Try running: $psqlcmd"
-        echo " -c 'DROP DATABASE $BDM_PG_DBNAME'"
+        echo " -c 'DROP DATABASE $BDM_PG_DBNAME;'"
     else
         echo "Database '$BDM_PG_DBNAME' does not exist."
     fi
