@@ -32,7 +32,7 @@ CREATE TABLE messages (
 
 CREATE TABLE targets (
     id              serial          NOT NULL UNIQUE,
-    fqdn            fqdn_t          PRIMARY_KEY,
+    fqdn            fqdn_t          PRIMARY KEY,
     free_ts         ts_t            NOT NULL DEFAULT 0,
     curr_cli        integer         NOT NULL,
     max_cli         integer         NOT NULL,
@@ -48,7 +48,7 @@ CREATE TABLE device_targets (
 
 CREATE TABLE target_ips (
     target_id       integer         NOT NULL REFERENCES targets (id),
-    ip              ip_t,           NOT NULL,
+    ip              ip_t            NOT NULL,
     date_effective  timestamp       NOT NULL
 );
 
