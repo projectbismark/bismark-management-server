@@ -8,10 +8,12 @@ source ~/etc/bdm_db.conf
 default_BDM_PG_HOST='localhost'
 default_BDM_PG_PORT='5432'
 default_BDM_PG_DBNAME='bismark_mgmt'
+default_BDM_PG_USER='bismark'
 
 BDM_PG_HOST=${BDM_PG_HOST:-$default_BDM_PG_HOST}
 BDM_PG_PORT=${BDM_PG_PORT:-$default_BDM_PG_PORT}
 BDM_PG_DBNAME=${BDM_PG_DBNAME:-$default_BDM_PG_DBNAME}
+BDM_PG_USER=${BDM_PG_USER:-$default_BDM_PG_USER}
 
 psqlcmd="psql -U $BDM_PG_USER -h $BDM_PG_HOST -p $BDM_PG_PORT"
 psqlcmd_db="$psqlcmd -d $BDM_PG_DBNAME"
