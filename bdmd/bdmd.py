@@ -317,7 +317,7 @@ class ProbeHandler(DatagramProtocol):
     def measure_req_interaction(self, cursor, probe, mreq):
         d = cursor.execute((
                 "SELECT t.id, ti.ip, ts.info, t.free_ts, t.curr_cli, "
-                "   t.max_cli, s.is_exclusive "
+                "   t.max_cli, s.is_exclusive, t.fqdn "
                 "FROM targets as t, target_ips as ti, target_services as ts, "
                 "   services as s, device_targets as dt "
                 "WHERE dt.device_id = %s "
@@ -363,6 +363,7 @@ class ProbeHandler(DatagramProtocol):
             t_curr_cli  = int(resultset[4])
             t_max_cli   = int(resultset[5])
             t_exclusive = (resultset[6] == True)
+            t_fqdn      = resultset[7]
 
             if t_exclusive:
                 if t_free_ts > probe.time_ts:
@@ -375,9 +376,9 @@ class ProbeHandler(DatagramProtocol):
             else:
                 d = defer.succeed(probe)
             probe.reply = '%s %s %d\n' % (t_ip, t_info, delay)
-            print(("%s - Scheduled %s measure from %s to %s at %d for %s "
-                    "seconds" % (probe.time_str, mreq.type, probe.id, t_ip,
-                    measure_start, mreq.duration)))
+            print(("%s - Scheduled %s measure from %s to %s (%s) at %d for %s "
+                    "seconds" % (probe.time_str, mreq.type, probe.id, t_fqdn,
+                    t_ip, measure_start, mreq.duration)))
         else:
             probe.reply = ' '
             print("%s - No target available for %s measurement from %s" %
