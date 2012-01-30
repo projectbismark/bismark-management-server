@@ -316,27 +316,33 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def measure_req_interaction(self, cursor, probe, mreq):
         d = cursor.execute((
-            "SELECT t.ip, c.info, t.free_ts, t.curr_cli, t.max_cli, "
-            "       mt.mexclusive "
-            "FROM targets as t, capabilities as c, "
-            "     device_targets as dt, mtypes as mt "
-            "WHERE dt.device_id = %s "
-            "      AND dt.target_ip = t.ip "
-            "      AND dt.target_ip = c.target_ip "
-            "      AND dt.priority > 0 "
-            "      AND c.service = %s "
-            "      AND t.cat = %s "
-            "      AND t.available = TRUE "
-            "      AND mt.mtype = c.service "
-            "      AND (mt.mexclusive = FALSE OR "
-            "           (mt.mexclusive = TRUE AND "
-            "            t.free_ts < %s)) "
-            "ORDER BY dt.priority DESC, t.free_ts ASC "
-            "LIMIT 1 "
-            # IMPORTANT: 'FOR UPDATE' locks the selected row for update below
-            "FOR UPDATE OF t;"
-            ), [probe.id, mreq.type, mreq.category,
-            probe.time_ts + self.config['max_delay']])
+                "SELECT t_id, ti.ip, ts.info, t.free_ts, t.curr_cli, "
+                "   t.max_cli, s.is_exclusive "
+                "FROM targets as t, target_ips as ti, target_services as ts, "
+                "   services as s, device_targets as dt "
+                "WHERE dt.device_id = %s "
+                "   AND dt.priority > 0 "
+                "   AND t.available = TRUE "
+                "   AND ti.target_id = dt.target_id "
+                "   AND ti.date_effective = ( "
+                "       SELECT max(ti2.date_effective) "
+                "       FROM target_ips as ti2 "
+                "       WHERE ti2.target_id = ti.target_id "
+                "       GROUP BY ti2.target_id;) "
+                "   AND ts.target_id = dt.target_id "
+                "   AND ts.service_id = s.id"
+                "   AND s.name = %s "
+                "   AND (s.is_exclusive = FALSE OR "
+                "        (s.is_exclusive = TRUE AND t.free_ts < %s)) "
+                "ORDER BY dt.priority DESC, t.free_ts ASC "
+                "LIMIT 1 "
+                "FOR UPDATE OF t;"  # N.B. 'FOR UPDATE' locks the selected row
+                                    #      for the coming update below
+                ), [
+                probe.id,
+                mreq.type,
+                probe.time_ts + self.config['max_delay'],
+                ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
     @print_entry
@@ -349,20 +355,21 @@ class ProbeHandler(DatagramProtocol):
             delay = 0
 
             # these are all target ("t_") characteristics
-            t_ip        = resultset[0]
-            t_info      = resultset[1]
-            t_free_ts   = int(resultset[2])
-            t_curr_cli  = int(resultset[3])
-            t_max_cli   = int(resultset[4])
-            t_exclusive = (resultset[5] == True)
+            t_id        = int(resultset[0])
+            t_ip        = resultset[1]
+            t_info      = resultset[2]
+            t_free_ts   = int(resultset[3])
+            t_curr_cli  = int(resultset[4])
+            t_max_cli   = int(resultset[5])
+            t_exclusive = (resultset[6] == True)
 
             if t_exclusive:
                 if t_free_ts > probe.time_ts:
                     delay = t_free_ts - probe.time_ts
                     measure_start += delay
                 d = cursor.execute(
-                        "UPDATE targets SET free_ts=%s WHERE ip=%s;",
-                        [measure_start + mreq.duration, t_ip])
+                        "UPDATE targets SET free_ts=%s WHERE id=%s;",
+                        [measure_start + mreq.duration, t_id])
                 d.addCallback(lambda _: probe)
             else:
                 d = defer.succeed(probe)
@@ -404,7 +411,7 @@ class ProbeHandler(DatagramProtocol):
 
     @print_entry
     def check_messages(self, probe):
-        d = self.dbpool.runQuery(("SELECT rowid, msgfrom, msgto, msg "
+        d = self.dbpool.runQuery(("SELECT id, msgfrom, msgto, msg "
                 "FROM messages WHERE msgto=%s LIMIT 1;"), [probe.id])
         return d.addCallback(self.check_messages_qh)
 
@@ -413,7 +420,7 @@ class ProbeHandler(DatagramProtocol):
             msg_id = resultset[0][0]
             msg = resultset[0][3]
             da = self.dbpool.runOperation(
-                    "DELETE FROM messages where rowid=%s;", [msg_id])
+                    "DELETE FROM messages where id=%s;", [msg_id])
             return da.addCallback(lambda _: msg)
         else:
             return defer.succeed(None)
