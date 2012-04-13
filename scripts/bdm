@@ -4,8 +4,8 @@
 # author: walter.dedonato@unina.it
 
 # Load configuration file
-. ~/etc/bdm.conf
-. ~/etc/bdm_db.conf
+. ../conf/bdm.conf.example
+. ./bdm_db_localhost.conf
 
 default_BDM_PG_HOST='localhost'
 default_BDM_PG_PORT='5432'
@@ -111,7 +111,7 @@ function parse()
 		if [ $2 == ALL ]; then
 			if [ $3 == "on" ]; then
 				NOWAIT=on
-				for dev in $(query "SELECT id FROM devices WHERE $(date +%s) - ts < 180;"); do
+				for dev in $(query "SELECT id FROM devices WHERE $(date +%s) - last_seen_ts < 180;"); do
 					FWD_PORT=""
 					start_tunnel $dev
 				done
@@ -302,7 +302,7 @@ function gen_fwd_port()
 function get_fwd_port()
 {
 	# Query tunnels db
-	FWD_PORT=$(query "SELECT port FROM tunnels WHERE device_id='$1' ORDER BY ts ASC LIMIT 1;")
+	FWD_PORT=$(query "SELECT port FROM tunnels WHERE device_id='$1' ORDER BY created_ts ASC LIMIT 1;")
 	[ $FWD_PORT ] || return 1
 }
 
@@ -324,7 +324,7 @@ function check_tunnel()
 	if check_fwd_port $FWD_PORT; then
 		return 0
 	else
-		query "DELETE FROM tunnels WHERE device_id='$1' AND port=$FWD_PORT AND ts<$(date +%s);"
+		query "DELETE FROM tunnels WHERE device_id='$1' AND port=$FWD_PORT AND created_ts<$(date +%s);"
 		get_fwd_port $1 && return 2 || return 3
 	fi
 }
@@ -385,7 +385,7 @@ function sendmail ()
 function settunnel()
 {
 	echo -n "Setting tunnel db entry for $1 on port $2..."
-	query "INSERT INTO tunnels (device_id, port, ts) VALUES('$1',$2,$(date +%s));"
+	query "INSERT INTO tunnels (device_id, port, created_ts) VALUES('$1',$2,$(date +%s));"
 	echo done
 	
 	# Send notification email
@@ -572,10 +572,9 @@ function list()
 	echo -ne "${WHITE}"
 	printf "%-16s %-15s %-7s %-20s %-10s\n" ID IP VERSION LAST_PROBE USER
 	IFS=$'\n' 
-	for dev in $(query 'SELECT id,ip,bversion,ts,duser FROM devices ORDER BY id;'); do
-		IFS=$'|' read id ip ver ts user <<< "$dev"
+	for dev in $(query 'SELECT id,ip,bversion,last_seen_ts FROM devices ORDER BY id;'); do
+		IFS=$'|' read id ip ver ts <<< "$dev"
 		off_time=$(( $(date +%s) - $ts ))
-		[ "$user" ] || user=root
 		if [ $off_time -lt 300 ]; then
 			echo -ne $GREEN
 		elif [ $off_time -lt 600 ]; then
@@ -584,8 +583,7 @@ function list()
 			[ "$1" == log -a $off_time -lt 900 ] && echo "$(date +"%Y-%m-%d %H:%M:%S") - Device $id went offline" >> /tmp/devices.log
 			echo -ne $RED
 		fi
-		# [ $(mysql -NB -u root -e "SELECT deviceid FROM DEVICES WHERE deviceid='$id'" $MYSQL_DB)  ] || printf "#"
-		printf "%-16s %-15s %-7s %-20s %-10s\n" $id $ip $ver $(date -d @$ts +"%Y-%m-%d %H:%M:%S") $user
+		printf "%-16s %-15s %-7s %-20s %-10s\n" $id $ip $ver $(date -d @$ts +"%Y-%m-%d %H:%M:%S")
 	done
 	[ "$1" == "notify" ] && ( sendmail "@/tmp/devices.log" ; rm /tmp/devices.log )
 
@@ -712,7 +710,7 @@ function read_msg()
 			' ~/var/log/devices/$from.log
 			echo "------------------------"
 
-			query "DELETE FROM messages WHERE rowid='$mid';"
+			query "DELETE FROM messages WHERE id='$mid';"
 		done
 	else
 		echo "No incoming messages"
@@ -731,7 +729,7 @@ function blacklist ()
 			echo -e "Added $1 to blacklist\n"
 		;;
 		off) 
-			query "DELETE FROM blacklist WHERE device_id='$1';"
+			query "DELETE FROM blacklist WHERE device_id='$1';" 
 			echo -e "Removed $1 from blacklist\n"
 		;;
 		esac	
@@ -763,7 +761,7 @@ function setuser()
 function clearmsg()
 {
 	if [ $1 ]; then
-		query "DELETE FROM messages WHERE rowid=$1;"
+		query "DELETE FROM messages WHERE id=$1;"
 	else
 		echo "Delete all pending messages (y/N)?"
 		read a
