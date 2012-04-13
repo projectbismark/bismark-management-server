@@ -139,6 +139,7 @@ class MeasurementRequest(object):
         self.type = None
         self.zone = None
         self.duration = None
+        self.default_target = False
 
         if 'payload' in kwargs:
             self.init_payload(kwargs['payload'])
@@ -310,8 +311,21 @@ class ProbeHandler(DatagramProtocol):
         except ClientRequestException as cre:
             return defer.fail(cre)
 
-        return self.dbpool.runInteraction(
-                self.measure_req_interaction, probe, mreq)
+        d = self.dbpool.runQuery((
+                "SELECT * "
+                "FROM device_targets as dt "
+                "WHERE dt.device_id = %s;"),
+                [probe.id])
+        return d.addCallback(self.measure_default_target_check, probe, mreq)
+
+    def measure_default_target_check(self, resultset, probe, mreq):
+        if resultset:
+            return self.dbpool.runInteraction(
+                    self.measure_req_interaction, probe, mreq)
+        else:
+            mreq.default_target = True
+            return self.dbpool.runInteraction(
+                    self.measure_req_defaultinteraction, probe, mreq)
 
     @print_entry
     def measure_req_interaction(self, cursor, probe, mreq):
@@ -341,6 +355,36 @@ class ProbeHandler(DatagramProtocol):
                                     #      for the coming update below
                 ), [
                 probe.id,
+                mreq.type,
+                probe.time_ts + self.config['max_delay'],
+                ])
+        return d.addCallback(self.measure_req_qh, probe, mreq)
+
+    @print_entry
+    def measure_req_defaultinteraction(self, cursor, probe, mreq):
+        d = cursor.execute((
+                "SELECT t.id, ti.ip, ts.info, t.free_ts, t.curr_cli, "
+                "   t.max_cli, s.is_exclusive, t.fqdn "
+                "FROM targets as t, target_ips as ti, target_services as ts, "
+                "   services as s "
+                "WHERE t.fqdn = 'porter-square.cc.gt.atl.ga.us.' "
+                "  AND t.available = TRUE "
+                "  AND ti.target_id = t.id"
+                "  AND ti.date_effective = ( "
+                "      SELECT max(ti2.date_effective) "
+                "      FROM target_ips as ti2 "
+                "      WHERE ti2.target_id = ti.target_id "
+                "      GROUP BY ti2.target_id) "
+                "  AND ts.target_id = t.id"
+                "  AND ts.service_id = s.id"
+                "  AND s.name = %s "
+                "  AND (s.is_exclusive = FALSE OR "
+                "       (s.is_exclusive = TRUE AND t.free_ts < %s)) "
+                "ORDER BY t.free_ts ASC "
+                "LIMIT 1 "
+                "FOR UPDATE OF t;"  # N.B. 'FOR UPDATE' locks the selected row
+                                    #      for the coming update below
+                ), [
                 mreq.type,
                 probe.time_ts + self.config['max_delay'],
                 ])
@@ -377,8 +421,9 @@ class ProbeHandler(DatagramProtocol):
                 d = defer.succeed(probe)
             probe.reply = '%s %s %d\n' % (t_ip, t_info, delay)
             print(("%s - Scheduled %s measure from %s to %s (%s) at %d for %s "
-                    "seconds" % (probe.time_str, mreq.type, probe.id, t_fqdn,
-                    t_ip, measure_start, mreq.duration)))
+                    "seconds%s" % (probe.time_str, mreq.type, probe.id, t_fqdn,
+                    t_ip, measure_start, mreq.duration,
+                    " [DEFAULT_TARGET]" if mreq.default_target else "")))
         else:
             probe.reply = ' '
             print("%s - No target available for %s measurement from %s" %
