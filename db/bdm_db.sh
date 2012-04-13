@@ -83,6 +83,7 @@ case $1 in
 create_db)
     if ! db_exists; then
         $psqlcmd_db -c "CREATE DATABASE $BDM_PG_DBNAME;"
+	createlang plpgsql $BDM_PG_DBNAME
     else
         echo "Database '$BDM_PG_DBNAME' already exists."
     fi
@@ -90,6 +91,7 @@ create_db)
 create_tables)
     db_exists_or_die
     if ! tables_exist; then
+        $psqlcmd_db -f bismark_mgmt_functions.sql
         $psqlcmd_db -f bismark_mgmt_tables.sql
     else
         echo "There are already tables in '$BDM_PG_DBNAME'."

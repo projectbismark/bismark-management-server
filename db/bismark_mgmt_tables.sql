@@ -15,6 +15,15 @@ CREATE TABLE devices (
     ip              ip_t            NOT NULL,
     last_seen_ts    ts_t            NOT NULL
 );
+CREATE TRIGGER log_probe AFTER UPDATE on devices FOR EACH ROW EXECUTE
+PROCEDURE log_probe();
+
+CREATE TABLE devices_log (
+    id              id_t            NOT NULL,
+    bversion        version_t       NOT NULL,
+    ip              ip_t            NOT NULL,
+    ts              ts_t            NOT NULL
+);
 
 CREATE TABLE tunnels (
     device_id       id_t            NOT NULL REFERENCES devices (id),
