@@ -286,3 +286,9 @@ if __name__ == '__main__':
 # 4. if successful targets are available, then
 #       a. insert new rows into device_targets with current date_effective
 #       b. disable old non-permament rows
+# BEGIN;
+# UPDATE device_targets SET is_enabled = FALSE WHERE is_enabled = TRUE AND
+# is_permanent = FALSE;
+# INSERT INTO device_targets (device_id, target_id, preference, date_effective,
+# is_enabled) VALUES (%s, %s, %s, %s, TRUE)
+# COMMIT;
