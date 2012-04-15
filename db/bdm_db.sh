@@ -83,7 +83,6 @@ case $1 in
 create_db)
     if ! db_exists; then
         $psqlcmd_db -c "CREATE DATABASE $BDM_PG_DBNAME;"
-	createlang plpgsql $BDM_PG_DBNAME
     else
         echo "Database '$BDM_PG_DBNAME' already exists."
     fi

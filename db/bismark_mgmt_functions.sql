@@ -1,4 +1,5 @@
 /* TODO: Check for error on insert*/
+CREATE LANGUAGE plpgsql;
 CREATE OR REPLACE function log_probe() RETURNS trigger as
 $log_probe$
 	BEGIN
@@ -7,6 +8,6 @@ $log_probe$
 			|| ' $1,$2,$3,$4)'
 			USING NEW.id,NEW.bversion,NEW.ip,NEW.last_seen_ts;
 		RETURN NEW;
-	END;	
+	END;
 $log_probe$
 LANGUAGE plpgsql;
