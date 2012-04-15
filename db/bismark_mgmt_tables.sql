@@ -54,6 +54,10 @@ CREATE TABLE device_targets (
     device_id       id_t            NOT NULL REFERENCES devices (id),
     target_id       integer         NOT NULL REFERENCES targets (id),
     preference      integer         NOT NULL DEFAULT 0,
+    is_enabled      boolean         NOT NULL DEFAULT FALSE,
+    -- date_effective, is_permanent are only used by update_device_targets.py
+    date_effective  timestamp       NOT NULL DEFAULT now(),
+    is_permanent    boolean         NOT NULL DEFAULT FALSE,
     PRIMARY KEY (device_id, target_id)
 );
 

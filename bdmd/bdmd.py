@@ -335,17 +335,16 @@ class ProbeHandler(DatagramProtocol):
                 "FROM targets as t, target_ips as ti, target_services as ts, "
                 "   services as s, device_targets as dt "
                 "WHERE dt.device_id = %s "
-                "   AND dt.preference > 0 "
                 "   AND t.id = dt.target_id "
                 "   AND t.available = TRUE "
                 "   AND ti.target_id = dt.target_id "
-                "   AND ti.date_effective = ( "
+                "   AND ti.date_effective >= ( "
                 "       SELECT max(ti2.date_effective) "
                 "       FROM target_ips as ti2 "
-                "       WHERE ti2.target_id = ti.target_id "
-                "       GROUP BY ti2.target_id) "
+                "       WHERE ti2.target_id = ti.target_id ) "
                 "   AND ts.target_id = dt.target_id "
-                "   AND ts.service_id = s.id"
+                "   AND ts.service_id = s.id "
+                "   AND dt.is_enabled = TRUE "
                 "   AND s.name = %s "
                 "   AND (s.is_exclusive = FALSE OR "
                 "        (s.is_exclusive = TRUE AND t.free_ts < %s)) "
@@ -423,7 +422,7 @@ class ProbeHandler(DatagramProtocol):
             print(("%s - Scheduled %s measure from %s to %s (%s) at %d for %s "
                     "seconds%s" % (probe.time_str, mreq.type, probe.id, t_fqdn,
                     t_ip, measure_start, mreq.duration,
-                    " [DEFAULT_TARGET]" if mreq.default_target else "")))
+                    " DEFAULT_TARGET" if mreq.default_target else "")))
         else:
             probe.reply = ' '
             print("%s - No target available for %s measurement from %s" %
