@@ -1,39 +1,39 @@
--- testing
--- SELECT id, bversion, ip,
--- TIMESTAMP 'epoch' + last_seen_ts * INTERVAL '1 second' as date_last_seen
--- FROM devices;
+BEGIN;
 
-ALTER TABLE devices
-ALTER COLUMN last_seen_ts TYPE timestamp
+-- devices
+ALTER TABLE devices ALTER COLUMN last_seen_ts TYPE timestamp
 USING TIMESTAMP 'epoch' + last_seen_ts * INTERVAL '1 second';
-ALTER TABLE devices
-RENAME COLUMN last_seen_ts to date_last_seen;
 
-ALTER TABLE devices_log
-ALTER COLUMN ts TYPE timestamp
+ALTER TABLE devices RENAME COLUMN last_seen_ts to date_last_seen;
+
+-- devices_log
+ALTER TABLE devices_log ALTER COLUMN ts TYPE timestamp
 USING TIMESTAMP 'epoch' + ts * INTERVAL '1 second';
-ALTER TABLE devices_log
-RENAME COLUMN ts to date_seen;
 
--- testing
--- SELECT id, fqdn,
--- TIMESTAMP 'epoch' + free_ts * INTERVAL '1 second' as date_free, curr_cli,
--- max_cli, available
--- FROM targets;
+ALTER TABLE devices_log RENAME COLUMN ts to date_seen;
 
-ALTER TABLE targets
-ALTER COLUMN free_ts TYPE timestamp
+CREATE OR REPLACE function log_probe() RETURNS trigger as
+$log_probe$
+	BEGIN
+		EXECUTE 'INSERT INTO devices_log '
+			|| ' (id,bversion,ip,date_seen) VALUES ('
+			|| ' $1,$2,$3,$4)'
+			USING NEW.id,NEW.bversion,NEW.ip,NEW.date_last_seen;
+		RETURN NEW;
+	END;
+$log_probe$
+LANGUAGE plpgsql;
+
+-- targets
+ALTER TABLE targets ALTER COLUMN free_ts TYPE timestamp
 USING TIMESTAMP 'epoch' + free_ts * INTERVAL '1 second';
-ALTER TABLE targets
-RENAME COLUMN free_ts to date_free;
 
--- testing
--- SELECT device_id, port,
--- TIMESTAMP 'epoch' + created_ts * INTERVAL '1 second' as date_created
--- FROM tunnels;
+ALTER TABLE targets RENAME COLUMN free_ts to date_free;
 
-ALTER TABLE tunnels
-ALTER COLUMN created_ts TYPE timestamp
+-- tunnels
+ALTER TABLE tunnels ALTER COLUMN created_ts TYPE timestamp
 USING TIMESTAMP 'epoch' + created_ts * INTERVAL '1 second';
-ALTER TABLE tunnels
-RENAME COLUMN created_ts to date_created;
+
+ALTER TABLE tunnels RENAME COLUMN created_ts to date_created;
+
+COMMIT;
