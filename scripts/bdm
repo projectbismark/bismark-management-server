@@ -567,7 +567,6 @@ function config()
 function list()
 {
 	# Dump devices table
-	echo -e "${BLUE}Latest version: ${WHITE}$VERSION"
 	echo -e "${BLUE}\nDevices:"
 	echo -ne "${WHITE}"
 	printf "%-16s %-15s %-7s %-20s %-10s\n" ID IP VERSION LAST_PROBE USER
