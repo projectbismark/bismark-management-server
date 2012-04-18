@@ -1,5 +1,6 @@
 # Bismark device manager configuration file
 PATH="$HOME/bin:/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/bin"
+BDMDPY_ROOT="$HOME/bismark-mgmt-server/bdmd"
 
 # UDP Probing options
 SERVER_ADDR=prober.projectbismark.net
@@ -32,13 +33,14 @@ CYAN='\e[1;36m'
 WHITE='\e[1;37m'
 NO_COLOR='\e[0m'
 
-## bdmd Configuration
-export BDMD_LOG_FILE=$VAR_DIR/log/bdmd.log
+## bdmd.py Configuration
 #export BDMD_TXPG_CONNPOOL=5
-#export BDMD_TIME_ERROR=2
-#export BDMD_MAX_DELAY=300
 #export BDMD_TCP_KEEPIDLE=10
 #export BDMD_TCP_KEEPCNT=2
 #export BDMD_TCP_KEEPINTVL=10
+#
 #export BDMD_DEBUG=0
+#
+#export BDMD_TIME_ERROR=2
+#export BDMD_MAX_DELAY=300
 

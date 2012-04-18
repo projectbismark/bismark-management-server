@@ -61,25 +61,28 @@ while getopts 'h' flag; do
 done
 shift $(( OPTIND - 1 ))
 
-pid=$(pgrep bdmd.real)
-ports=$(sudo netstat -lnup | awk -F"[\t: ]*" '/bdmd.real/{ print $5 }')
+pid=$(pgrep bdmd.py)
 case $1 in
 start)
-	if [ "$ports" ]; then
-		echo "bdmd already running on ports" $ports
+	if [ ! -z "$pid" ]; then
+		echo "bdmd already running"
 	else
 		echo -n "Starting bdmd..."
-		bdmd.real $PROBE_PORTS >> $BDMD_LOG_FILE 2> /tmp/bdmd.debug &
+			if [ ! -e "$BDMDPY_ROOT/virt-python/bin/activate" ]; then
+			    $BDMDPY_ROOT/mkvirtualenv.sh
+			fi
+			source $BDMDPY_ROOT/virt-python/bin/activate
+			$BDMDPY_ROOT/bdmd.py $PROBE_PORTS >> $BDMD_LOG_FILE 2> /tmp/bdmd.debug &
 		sleep 1
-		[ "$(pgrep bdmd.real)" ] && echo "done" || echo "error"
+		[ "$(pgrep bdmd.py)" ] && echo "done" || echo "error"
 	fi
 ;;
 stop)
-	if [ "$pid" ]; then
+	if [ ! -z "$pid" ]; then
 		echo -n "Stopping bdmd..."
 		kill $pid
 		sleep 1
-		[ "$(pgrep bdmd.real)" ] && echo "error" || echo "done"
+		[ "$(pgrep bdmd.py)" ] && echo "error" || echo "done"
 	else
 		echo "bdmd not running"
 	fi
@@ -89,8 +92,8 @@ restart)
 	$0 start
 ;;
 info)
-	if [ "$pid" ]; then
-		echo "bdmd listening on "$ports" (pid "$pid")"
+	if [ ! -z "$pid" ]; then
+		echo "bdmd is running (pid "$pid")"
 	else
 		echo "bdmd not running"
 	fi
