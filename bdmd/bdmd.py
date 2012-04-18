@@ -1,6 +1,6 @@
 #!./virt-python/bin/python
 
-import time
+import calendar
 import datetime
 import os
 import socket
@@ -178,7 +178,7 @@ class Probe(object):
             self.payload = None
         self.ip = host
         arrival_time = datetime.datetime.now().replace(microsecond=0)
-        self.time_ts = int(time.mktime(arrival_time.timetuple()))
+        self.time_ts = int(calendar.timegm(arrival_time.timetuple()))
         self.time_str = arrival_time.isoformat()
         self.blacklisted = False
         self.reply = None
