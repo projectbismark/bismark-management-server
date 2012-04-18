@@ -111,7 +111,7 @@ function parse()
 		if [ $2 == ALL ]; then
 			if [ $3 == "on" ]; then
 				NOWAIT=on
-				for dev in $(query "SELECT id FROM devices WHERE $(date +%s) - last_seen_ts < 180;"); do
+				for dev in $(query "SELECT id FROM devices WHERE $(date +%s) - EXTRACT(epoch from date_last_seen) < 180;"); do
 					FWD_PORT=""
 					start_tunnel $dev
 				done
@@ -302,7 +302,7 @@ function gen_fwd_port()
 function get_fwd_port()
 {
 	# Query tunnels db
-	FWD_PORT=$(query "SELECT port FROM tunnels WHERE device_id='$1' ORDER BY created_ts ASC LIMIT 1;")
+	FWD_PORT=$(query "SELECT port FROM tunnels WHERE device_id='$1' ORDER BY date_created ASC LIMIT 1;")
 	[ $FWD_PORT ] || return 1
 }
 
@@ -324,7 +324,7 @@ function check_tunnel()
 	if check_fwd_port $FWD_PORT; then
 		return 0
 	else
-		query "DELETE FROM tunnels WHERE device_id='$1' AND port=$FWD_PORT AND created_ts<$(date +%s);"
+		query "DELETE FROM tunnels WHERE device_id='$1' AND port=$FWD_PORT AND EXTRACT(epoch from date_created)<$(date +%s);"
 		get_fwd_port $1 && return 2 || return 3
 	fi
 }
@@ -385,7 +385,7 @@ function sendmail ()
 function settunnel()
 {
 	echo -n "Setting tunnel db entry for $1 on port $2..."
-	query "INSERT INTO tunnels (device_id, port, created_ts) VALUES('$1',$2,$(date +%s));"
+	query "INSERT INTO tunnels (device_id, port, date_created) VALUES('$1',$2,TIMESTAMP 'epoch' + $(date +%s) * INTERVAL '1 second');"
 	echo done
 	
 	# Send notification email
@@ -572,7 +572,7 @@ function list()
 	echo -ne "${WHITE}"
 	printf "%-16s %-15s %-7s %-20s %-10s\n" ID IP VERSION LAST_PROBE USER
 	IFS=$'\n' 
-	for dev in $(query 'SELECT id,ip,bversion,last_seen_ts FROM devices ORDER BY id;'); do
+	for dev in $(query 'SELECT id,ip,bversion,EXTRACT(epoch from date_last_seen) FROM devices ORDER BY id;'); do
 		IFS=$'|' read id ip ver ts <<< "$dev"
 		off_time=$(( $(date +%s) - $ts ))
 		if [ $off_time -lt 300 ]; then

@@ -6,7 +6,7 @@ $log_probe$
 		EXECUTE 'INSERT INTO devices_log '
 			|| ' (id,bversion,ip,ts) VALUES ('
 			|| ' $1,$2,$3,$4)'
-			USING NEW.id,NEW.bversion,NEW.ip,NEW.last_seen_ts;
+			USING NEW.id,NEW.bversion,NEW.ip,NEW.date_last_seen;
 		RETURN NEW;
 	END;
 $log_probe$

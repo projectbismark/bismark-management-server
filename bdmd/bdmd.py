@@ -104,7 +104,8 @@ def set_tcp_keepalive(fd, keepalive = True,
             TCP_KEEPALIVE = 0x10
             s.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, tcp_keepidle)
         elif sys.platform == 'win32':
-            #s.ioctl(SIO_KEEPALIVE_VALS, (1, tcp_keepidle*1000, tcp_keepintvl*1000))
+            #s.ioctl(SIO_KEEPALIVE_VALS,
+            #        (1, tcp_keepidle*1000, tcp_keepintvl*1000))
             pass
     else:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 0)
@@ -177,9 +178,7 @@ class Probe(object):
         except IndexError:
             self.payload = None
         self.ip = host
-        arrival_time = datetime.datetime.now().replace(microsecond=0)
-        self.time_ts = int(calendar.timegm(arrival_time.timetuple()))
-        self.time_str = arrival_time.isoformat()
+        self.arrival_time = datetime.datetime.utcnow()
         self.blacklisted = False
         self.reply = None
 
@@ -221,7 +220,7 @@ class ProbeHandler(DatagramProtocol):
             return
 
         print_debug("%s - \"%s %s\" from %s [%s]" %
-                (p.time_str, p.cmd, p.param, p.id, host))
+                (p.arrival_time.isoformat(), p.cmd, p.param, p.id, host))
 
         d = self.check_blacklist(p)
         d.addCallback(self.dispatch_response)
@@ -284,7 +283,7 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def handle_log_req(self, probe):
         print("%s - Received log from %s: %s" %
-                (probe.time_str, probe.id, probe.param))
+                (probe.arrival_time.isoformat(), probe.id, probe.param))
 
         try:
             # write log entry
@@ -292,7 +291,8 @@ class ProbeHandler(DatagramProtocol):
             logfile = open(
                     os.path.join(self.config['logdir'], logfilename), 'a')
             logfile.write("%s - %s\n%s\nEND - %s\n" %
-                    (probe.time_str, probe.param, probe.payload, probe.param))
+                    (probe.arrival_time.isoformat(), probe.param,
+                    probe.payload, probe.param))
             logfile.close()
         except IOError as ioe:
             # TODO should this be return defer.fail(ioe)?
@@ -335,7 +335,7 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def measure_req_interaction(self, cursor, probe, mreq):
         d = cursor.execute((
-                "SELECT t.id, ti.ip, ts.info, t.free_ts, t.curr_cli, "
+                "SELECT t.id, ti.ip, ts.info, t.date_free, t.curr_cli, "
                 "   t.max_cli, s.is_exclusive, t.fqdn "
                 "FROM targets as t, target_ips as ti, target_services as ts, "
                 "   services as s, device_targets as dt "
@@ -352,22 +352,23 @@ class ProbeHandler(DatagramProtocol):
                 "   AND dt.is_enabled = TRUE "
                 "   AND s.name = %s "
                 "   AND (s.is_exclusive = FALSE OR "
-                "        (s.is_exclusive = TRUE AND t.free_ts < %s)) "
-                "ORDER BY dt.preference DESC, t.free_ts ASC "
+                "        (s.is_exclusive = TRUE AND t.date_free < %s)) "
+                "ORDER BY dt.preference DESC, t.date_free ASC "
                 "LIMIT 1 "
                 "FOR UPDATE OF t;"  # N.B. 'FOR UPDATE' locks the selected row
                                     #      for the coming update below
                 ), [
                 probe.id,
                 mreq.type,
-                probe.time_ts + self.config['max_delay'],
+                (probe.arrival_time +
+                datetime.timedelta(seconds=self.config['max_delay'])),
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
     @print_entry
     def measure_req_defaultinteraction(self, cursor, probe, mreq):
         d = cursor.execute((
-                "SELECT t.id, ti.ip, ts.info, t.free_ts, t.curr_cli, "
+                "SELECT t.id, ti.ip, ts.info, t.date_free, t.curr_cli, "
                 "   t.max_cli, s.is_exclusive, t.fqdn "
                 "FROM targets as t, target_ips as ti, target_services as ts, "
                 "   services as s "
@@ -383,14 +384,15 @@ class ProbeHandler(DatagramProtocol):
                 "  AND ts.service_id = s.id"
                 "  AND s.name = %s "
                 "  AND (s.is_exclusive = FALSE OR "
-                "       (s.is_exclusive = TRUE AND t.free_ts < %s)) "
-                "ORDER BY t.free_ts ASC "
+                "       (s.is_exclusive = TRUE AND t.date_free < %s)) "
+                "ORDER BY t.date_free ASC "
                 "LIMIT 1 "
                 "FOR UPDATE OF t;"  # N.B. 'FOR UPDATE' locks the selected row
                                     #      for the coming update below
                 ), [
                 mreq.type,
-                probe.time_ts + self.config['max_delay'],
+                (probe.arrival_time +
+                datetime.timedelta(seconds=self.config['max_delay'])),
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
@@ -400,38 +402,47 @@ class ProbeHandler(DatagramProtocol):
         resultset = cursor.fetchone()
         if resultset:
             # time_error is a correction factor for processing & comm. time
-            measure_start = probe.time_ts + self.config['time_error']
-            delay = 0
+            measure_start = (probe.arrival_time +
+                    datetime.timedelta(seconds=self.config['time_error']))
+            delay = datetime.timedelta()
 
             # these are all target ("t_") characteristics
             t_id        = int(resultset[0])
             t_ip        = resultset[1]
             t_info      = resultset[2]
-            t_free_ts   = int(resultset[3])
+            t_date_free = resultset[3]
             t_curr_cli  = int(resultset[4])
             t_max_cli   = int(resultset[5])
             t_exclusive = (resultset[6] == True)
             t_fqdn      = resultset[7]
 
             if t_exclusive:
-                if t_free_ts > probe.time_ts:
-                    delay = t_free_ts - probe.time_ts
+                if t_date_free > probe.arrival_time:
+                    delay = t_date_free - probe.arrival_time
                     measure_start += delay
                 d = cursor.execute(
-                        "UPDATE targets SET free_ts=%s WHERE id=%s;",
-                        [measure_start + mreq.duration, t_id])
+                        "UPDATE targets SET date_free=%s WHERE id=%s;",
+                        [measure_start +
+                        datetime.timedelta(seconds=mreq.duration),
+                        t_id])
                 d.addCallback(lambda _: probe)
             else:
                 d = defer.succeed(probe)
-            probe.reply = '%s %s %d\n' % (t_ip, t_info, delay)
-            print(("%s - Scheduled %s measure from %s to %s (%s) at %d for %s "
-                    "seconds%s" % (probe.time_str, mreq.type, probe.id, t_fqdn,
-                    t_ip, measure_start, mreq.duration,
+            probe.reply = '%s %s %d\n' % (t_ip, t_info, delay.seconds)
+            print(("%s - Scheduled %s measure from %s to %s (%s) at %s for %d "
+                    "seconds%s" % (
+                    probe.arrival_time.isoformat(),
+                    mreq.type,
+                    probe.id,
+                    t_fqdn,
+                    t_ip,
+                    measure_start.isoformat(),
+                    mreq.duration,
                     " DEFAULT_TARGET" if mreq.default_target else "")))
         else:
             probe.reply = ' '
             print("%s - No target available for %s measurement from %s" %
-                    (probe.time_str, mreq.type, probe.id))
+                    (probe.arrival_time.isoformat(), mreq.type, probe.id))
             d = defer.succeed(probe)
         return(d)
 
@@ -451,13 +462,13 @@ class ProbeHandler(DatagramProtocol):
     @print_entry
     def register_device_qh(self, resultset, probe):
         if resultset:
-            query = ("UPDATE devices SET ip=%s, last_seen_ts=%s, bversion=%s "
+            query = ("UPDATE devices SET ip=%s, date_last_seen=%s, bversion=%s "
                     "WHERE id=%s;")
         else:
-            query = ("INSERT INTO devices (ip, last_seen_ts, bversion, id) "
+            query = ("INSERT INTO devices (ip, date_last_seen, bversion, id) "
                     "VALUES (%s, %s, %s, %s);")
         d = self.dbpool.runOperation(
-                query, [probe.ip, probe.time_ts, probe.param, probe.id])
+                query, [probe.ip, probe.arrival_time, probe.param, probe.id])
         return d.addCallback(lambda _: probe)
 
     @print_entry
@@ -480,7 +491,8 @@ class ProbeHandler(DatagramProtocol):
         if message:
             probe.reply = message
         else:
-            probe.reply = "pong %s %d" % (probe.ip, probe.time_ts)
+            probe.reply = "pong %s %d" % (
+                    probe.ip, calendar.timegm(probe.arrival_time))
         return defer.succeed(probe)
 
     def stop(self):

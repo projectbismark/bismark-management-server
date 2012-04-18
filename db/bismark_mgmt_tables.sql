@@ -6,21 +6,20 @@ CREATE DOMAIN ip_t          AS inet;
 CREATE DOMAIN msg_t         AS varchar(100);
 CREATE DOMAIN svcinfo_t     AS varchar(500);
 CREATE DOMAIN svcname_t     AS varchar(50);
-CREATE DOMAIN ts_t          AS integer;         -- UNIX timestamp
 CREATE DOMAIN version_t     AS varchar(50);
 
 CREATE TABLE devices (
     id              id_t            PRIMARY KEY,
     bversion        version_t       NOT NULL,
     ip              ip_t            NOT NULL,
-    last_seen_ts    ts_t            NOT NULL
+    date_last_seen  timestamp       NOT NULL
 );
 
 CREATE TABLE devices_log (
     id              id_t            NOT NULL,
     bversion        version_t       NOT NULL,
     ip              ip_t            NOT NULL,
-    ts              ts_t            NOT NULL
+    date_seen       timestamp       NOT NULL
 );
 
 -- log device check-ins in device_log
@@ -30,7 +29,7 @@ CREATE TRIGGER log_probe AFTER UPDATE on devices FOR EACH ROW
 CREATE TABLE tunnels (
     device_id       id_t            NOT NULL REFERENCES devices (id),
     port            integer         NOT NULL,
-    created_ts      ts_t            NOT NULL,
+    date_created    timestamp       NOT NULL,
     PRIMARY KEY (device_id, port)
 );
 
@@ -44,7 +43,7 @@ CREATE TABLE messages (
 CREATE TABLE targets (
     id              serial          NOT NULL UNIQUE,
     fqdn            fqdn_t          PRIMARY KEY,
-    free_ts         ts_t            NOT NULL DEFAULT 0,
+    date_free       timestamp       NOT NULL DEFAULT NOW(),
     curr_cli        integer         NOT NULL,
     max_cli         integer         NOT NULL,
     available       boolean         NOT NULL DEFAULT FALSE
