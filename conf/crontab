@@ -2,6 +2,9 @@ HOME="/home/bismark"
 
 # m h  dom mon dow   command
 
+# Bismark daemon start on boot
+@reboot ~/bin/bdmd start > /dev/null 2>&1
+
 # Bismark daemon failure restart
 */5  *   *   *   *    ~/bin/bdmd start >/dev/null 2>/dev/null
 
