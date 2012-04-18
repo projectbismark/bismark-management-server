@@ -16,7 +16,7 @@ REQ_ENV_VARS = ['VAR_DIR',
                 'BDM_PG_HOST',
                 'BDM_PG_USER',
                 'BDM_PG_PASSWORD',
-                'BDM_PG_DBNAME',
+                'BDM_PG_MGMT_DBNAME',
                 ]
 
 # each optional item consists of a tuple (var_name, default_value)
@@ -200,7 +200,7 @@ class ProbeHandler(DatagramProtocol):
                 min=int(config['BDMD_TXPG_CONNPOOL']),
                 host=config['BDM_PG_HOST'],
                 port=int(config['BDM_PG_PORT']),
-                database=config['BDM_PG_DBNAME'],
+                database=config['BDM_PG_MGMT_DBNAME'],
                 user=config['BDM_PG_USER'],
                 password=config['BDM_PG_PASSWORD'],
                 )

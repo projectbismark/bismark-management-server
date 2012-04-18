@@ -9,18 +9,18 @@
 
 default_BDM_PG_HOST='localhost'
 default_BDM_PG_PORT='5432'
-default_BDM_PG_DBNAME='bismark_mgmt'
+default_BDM_PG_MGMT_DBNAME='bismark_mgmt'
 
 BDM_PG_HOST=${BDM_PG_HOST:-$default_BDM_PG_HOST}
 BDM_PG_PORT=${BDM_PG_PORT:-$default_BDM_PG_PORT}
-BDM_PG_DBNAME=${BDM_PG_DBNAME:-$default_BDM_PG_DBNAME}
+BDM_PG_MGMT_DBNAME=${BDM_PG_MGMT_DBNAME:-$default_BDM_PG_MGMT_DBNAME}
 
 SSH_USER="root"
 
 # Aliases
 query()
 {
-    psql -A -q -t -U $BDM_PG_USER -h $BDM_PG_HOST -p $BDM_PG_PORT -d $BDM_PG_DBNAME -c "$1" \
+    psql -A -q -t -U $BDM_PG_USER -h $BDM_PG_HOST -p $BDM_PG_PORT -d $BDM_PG_MGMT_DBNAME -c "$1" \
     | awk 'NF!=0 {print}';
 }
 

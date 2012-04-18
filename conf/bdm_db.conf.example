@@ -1,5 +1,5 @@
 ## Postgres Configuration
-export BDM_PG_DBNAME=bismark_mgmt
+export BDM_PG_MGMT_DBNAME=bismark_mgmt
 export BDM_PG_DATA_DBNAME=bismark_openwrt_live_v0_1
 export BDM_PG_HOST=localhost
 #export BDM_PG_PORT=5432
