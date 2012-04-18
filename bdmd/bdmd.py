@@ -269,6 +269,11 @@ class ProbeHandler(DatagramProtocol):
                 d = self.handle_log_req(probe)
             elif probe.cmd == 'measure':
                 d = self.handle_measure_req(probe)
+            elif probe.cmd == 'echo':
+                probe.reply = (
+                        r"echo_reply: '%s'" %
+                        ' '.join((probe.id, probe.cmd, probe.param)))
+                d = defer.succeed(probe)
         return d
 
     @print_entry
