@@ -15,6 +15,8 @@ BDM_PG_HOST=${BDM_PG_HOST:-$default_BDM_PG_HOST}
 BDM_PG_PORT=${BDM_PG_PORT:-$default_BDM_PG_PORT}
 BDM_PG_DBNAME=${BDM_PG_DBNAME:-$default_BDM_PG_DBNAME}
 
+SSH_USER="root"
+
 # Aliases
 query()
 {
@@ -437,8 +439,6 @@ function console()
 	fi
 
 	[ $2 ] && { p=$* ; cmd=${p#* } ; }
-	SSH_USER=$(query "SELECT duser FROM devices WHERE id='$1'")
-	[ $SSH_USER ] || SSH_USER=root
 	if [ "$cmd" == bg ]; then
 		ssh $SSH_USER@127.0.0.1 -p $FWD_PORT $SSH_OPTIONS -i $SSH_KEY 2>/dev/null &
 	else
@@ -681,8 +681,6 @@ function copy()
 		esac
 	fi
 
-	SSH_USER=$(query "SELECT duser FROM devices WHERE id='$2'")
-	[ $SSH_USER ] || SSH_USER=root
 	scp -P $FWD_PORT $SSH_OPTIONS -i $SSH_KEY $1 $SSH_USER@127.0.0.1:/tmp 2>/dev/null 
 }
 
