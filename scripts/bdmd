@@ -35,15 +35,15 @@ function help()
 mkdir -p $VAR_DIR/log/devices/
 
 # Make DB
-db_exists=`psql -l | grep -c $BDM_PG_DBNAME`
+db_exists=`psql -l | grep -c $BDM_PG_MGMT_DBNAME`
 if [ $db_exists -eq 0 ]; then
-	echo "Database $BDM_PG_DBNAME does not exist. Please create it."
+	echo "Database $BDM_PG_MGMT_DBNAME does not exist. Please create it."
 	exit 1
 fi
-num_tables=`psql -A -q -t -c "\dt" $BDM_PG_DBNAME | wc -l`
+num_tables=`psql -A -q -t -c "\dt" $BDM_PG_MGMT_DBNAME | wc -l`
 if [ $num_tables -eq 0 ]; then
 	cd $DB_SRC
-	make create DB=$BDM_PG_DBNAME
+	make create DB=$BDM_PG_MGMT_DBNAME
 	cd -
 fi
 

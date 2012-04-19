@@ -19,8 +19,8 @@ FIXUP_TABLES = ['m_bitrate',
 REQ_ENV_VARS = ['BDM_PG_HOST',
                 'BDM_PG_USER',
                 'BDM_PG_PASSWORD',
-                'BDM_PG_DBNAME',
-                'BDM_PG_DATADBNAME',
+                'BDM_PG_MGMT_DBNAME',
+                'BDM_PG_DATA_DBNAME',
                 ]
 
 # each optional item consists of a tuple (var_name, default_value)
@@ -43,14 +43,14 @@ if __name__ == '__main__':
     mconn = psycopg2.connect(
             host=config['BDM_PG_HOST'],
             port=int(config['BDM_PG_PORT']),
-            database=config['BDM_PG_DBNAME'],
+            database=config['BDM_PG_MGMT_DBNAME'],
             user=config['BDM_PG_USER'],
             password=config['BDM_PG_PASSWORD'],
             )
     dconn = psycopg2.connect(
             host=config['BDM_PG_HOST'],
             port=int(config['BDM_PG_PORT']),
-            database=config['BDM_PG_DATADBNAME'],
+            database=config['BDM_PG_DATA_DBNAME'],
             user=config['BDM_PG_USER'],
             password=config['BDM_PG_PASSWORD'],
             )

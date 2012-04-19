@@ -7,27 +7,27 @@ source ~/etc/bdm_db.conf
 
 default_BDM_PG_HOST='localhost'
 default_BDM_PG_PORT='5432'
-default_BDM_PG_DBNAME='bismark_mgmt'
+default_BDM_PG_MGMT_DBNAME='bismark_mgmt'
 default_BDM_PG_USER='bismark'
 
 BDM_PG_HOST=${BDM_PG_HOST:-$default_BDM_PG_HOST}
 BDM_PG_PORT=${BDM_PG_PORT:-$default_BDM_PG_PORT}
-BDM_PG_DBNAME=${BDM_PG_DBNAME:-$default_BDM_PG_DBNAME}
+BDM_PG_MGMT_DBNAME=${BDM_PG_MGMT_DBNAME:-$default_BDM_PG_MGMT_DBNAME}
 BDM_PG_USER=${BDM_PG_USER:-$default_BDM_PG_USER}
 
 psqlcmd="psql -U $BDM_PG_USER -h $BDM_PG_HOST -p $BDM_PG_PORT"
-psqlcmd_db="$psqlcmd -d $BDM_PG_DBNAME"
+psqlcmd_db="$psqlcmd -d $BDM_PG_MGMT_DBNAME"
 
 if [ -e ~/.pgpass ]; then
-    pgpass_grepstr="($BDM_PG_HOST|\*):($BDM_PG_PORT|\*):($BDM_PG_DBNAME|\*):($BDM_PG_USER|\*)"
+    pgpass_grepstr="($BDM_PG_HOST|\*):($BDM_PG_PORT|\*):($BDM_PG_MGMT_DBNAME|\*):($BDM_PG_USER|\*)"
     if [ "$(grep -E -c $pgpass_grepstr ~/.pgpass)" -eq 0 ]; then
         echo "Appending to ~/.pgpass file."
-        pgpass_str="$BDM_PG_HOST:$BDM_PG_PORT:$BDM_PG_DBNAME:$BDM_PG_USER:$BDM_PG_PASSWORD"
+        pgpass_str="$BDM_PG_HOST:$BDM_PG_PORT:$BDM_PG_MGMT_DBNAME:$BDM_PG_USER:$BDM_PG_PASSWORD"
         echo $pgpass_str >> ~/.pgpass
     fi
 else
     echo "Creating ~/.pgpass file."
-    pgpass_str="$BDM_PG_HOST:$BDM_PG_PORT:$BDM_PG_DBNAME:$BDM_PG_USER:$BDM_PG_PASSWORD"
+    pgpass_str="$BDM_PG_HOST:$BDM_PG_PORT:$BDM_PG_MGMT_DBNAME:$BDM_PG_USER:$BDM_PG_PASSWORD"
     echo $pgpass_str #> ~/.pgpass
 fi
 
@@ -42,7 +42,7 @@ function connect_or_die()
 function db_exists()
 {
     connect_or_die
-    [ "$($psqlcmd -l 2>/dev/null | grep -c $BDM_PG_DBNAME)" -ne 0 ]
+    [ "$($psqlcmd -l 2>/dev/null | grep -c $BDM_PG_MGMT_DBNAME)" -ne 0 ]
 }
 
 function tables_exist()
@@ -54,7 +54,7 @@ function tables_exist()
 function db_exists_or_die()
 {
     if ! db_exists; then
-        echo "Database '$BDM_PG_DBNAME' does not exist."
+        echo "Database '$BDM_PG_MGMT_DBNAME' does not exist."
         echo "Run '$0 create_db' to create the database."
         exit 1
     fi
@@ -63,7 +63,7 @@ function db_exists_or_die()
 function tables_exist_or_die()
 {
     if ! tables_exist; then
-        echo "The necessary tables in '$BDM_PG_DBNAME' do not exist."
+        echo "The necessary tables in '$BDM_PG_MGMT_DBNAME' do not exist."
         echo "Run '$0 create_tables' to create the tables."
         exit 1
     fi
@@ -82,9 +82,9 @@ fi
 case $1 in
 create_db)
     if ! db_exists; then
-        $psqlcmd_db -c "CREATE DATABASE $BDM_PG_DBNAME;"
+        $psqlcmd_db -c "CREATE DATABASE $BDM_PG_MGMT_DBNAME;"
     else
-        echo "Database '$BDM_PG_DBNAME' already exists."
+        echo "Database '$BDM_PG_MGMT_DBNAME' already exists."
     fi
 ;;
 create_tables)
@@ -93,7 +93,7 @@ create_tables)
         $psqlcmd_db -f bismark_mgmt_functions.sql
         $psqlcmd_db -f bismark_mgmt_tables.sql
     else
-        echo "There are already tables in '$BDM_PG_DBNAME'."
+        echo "There are already tables in '$BDM_PG_MGMT_DBNAME'."
     fi
 ;;
 drop_tables)
@@ -102,16 +102,16 @@ drop_tables)
         echo -n "Try running: $psqlcmd_db"
         echo " -c 'DROP SCHEMA public CASCADE;'"
     else
-        echo "There are no tables in '$BDM_PG_DBNAME'."
+        echo "There are no tables in '$BDM_PG_MGMT_DBNAME'."
     fi
 ;;
 drop_db)
     if db_exists; then
         echo "I'm not willing to do this automatically, Dave."
         echo -n "Try running: $psqlcmd"
-        echo " -c 'DROP DATABASE $BDM_PG_DBNAME;'"
+        echo " -c 'DROP DATABASE $BDM_PG_MGMT_DBNAME;'"
     else
-        echo "Database '$BDM_PG_DBNAME' does not exist."
+        echo "Database '$BDM_PG_MGMT_DBNAME' does not exist."
     fi
 ;;
 db_exists)
