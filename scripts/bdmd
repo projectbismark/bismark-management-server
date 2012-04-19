@@ -61,7 +61,7 @@ while getopts 'h' flag; do
 done
 shift $(( OPTIND - 1 ))
 
-pid=$(pgrep bdmd.py)
+pid=$(pgrep -f bdmd.py)
 case $1 in
 start)
 	if [ ! -z "$pid" ]; then
@@ -74,7 +74,7 @@ start)
 			source $BDMDPY_ROOT/virt-python/bin/activate
 			$BDMDPY_ROOT/bdmd.py $PROBE_PORTS >> $BDMD_LOG_FILE 2> /tmp/bdmd.debug &
 		sleep 1
-		[ "$(pgrep bdmd.py)" ] && echo "done" || echo "error"
+		[ "$(pgrep -f bdmd.py)" ] && echo "done" || echo "error"
 	fi
 ;;
 stop)
@@ -82,7 +82,7 @@ stop)
 		echo -n "Stopping bdmd..."
 		kill $pid
 		sleep 1
-		[ "$(pgrep bdmd.py)" ] && echo "error" || echo "done"
+		[ "$(pgrep -f bdmd.py)" ] && echo "error" || echo "done"
 	else
 		echo "bdmd not running"
 	fi
