@@ -1,6 +1,9 @@
 #!/bin/bash
 
-VENV_DIR=virt-python
+set -o nounset
+set -o errexit
+
+VENV_DIR="$BDMDPY_ROOT/virt-python"
 PIP_CMD="pip" # $(which pip)
 VENV_CMD=$(which virtualenv2 || which virtualenv)
 if [ $? -ne 0 ]; then
