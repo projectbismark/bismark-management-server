@@ -1,6 +1,6 @@
 # Bismark device manager configuration file
 PATH="$HOME/bin:/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/bin"
-BDMDPY_ROOT="$HOME/bismark-mgmt-server/bdmd"
+BDMDPY_ROOT="$HOME/bismark-management-server/bdmd"
 
 # UDP Probing options
 SERVER_ADDR=prober.projectbismark.net
