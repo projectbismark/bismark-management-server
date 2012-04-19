@@ -361,7 +361,7 @@ class ProbeHandler(DatagramProtocol):
                 probe.id,
                 mreq.type,
                 (probe.arrival_time +
-                datetime.timedelta(seconds=self.config['max_delay'])),
+                datetime.timedelta(seconds=self.config['max_delay'])).isoformat(),
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
@@ -392,7 +392,7 @@ class ProbeHandler(DatagramProtocol):
                 ), [
                 mreq.type,
                 (probe.arrival_time +
-                datetime.timedelta(seconds=self.config['max_delay'])),
+                datetime.timedelta(seconds=self.config['max_delay'])).isoformat(),
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
@@ -422,8 +422,8 @@ class ProbeHandler(DatagramProtocol):
                     measure_start += delay
                 d = cursor.execute(
                         "UPDATE targets SET date_free=%s WHERE id=%s;",
-                        [measure_start +
-                        datetime.timedelta(seconds=mreq.duration),
+                        [(measure_start +
+                        datetime.timedelta(seconds=mreq.duration)).isoformat(),
                         t_id])
                 d.addCallback(lambda _: probe)
             else:
@@ -468,7 +468,7 @@ class ProbeHandler(DatagramProtocol):
             query = ("INSERT INTO devices (ip, date_last_seen, bversion, id) "
                     "VALUES (%s, %s, %s, %s);")
         d = self.dbpool.runOperation(
-                query, [probe.ip, probe.arrival_time, probe.param, probe.id])
+                query, [probe.ip, probe.arrival_time.isoformat(), probe.param, probe.id])
         return d.addCallback(lambda _: probe)
 
     @print_entry
