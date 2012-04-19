@@ -19,4 +19,5 @@ for i in "$activedir"/OW*; do
 done
 sleep 5
 ~/bin/xml_parse_pgsql.py > ~/var/log/last_xml_openwrt_parse.log 2>~/var/log/last_xml_openwrt_parse_error.log
+~/bin/fixup_klatch_direction_column.py > ~/var/log/fixup_klatch_direction_column.log 2>&1
 rm $pidfile
