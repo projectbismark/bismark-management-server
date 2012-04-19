@@ -227,7 +227,7 @@ class ProbeHandler(DatagramProtocol):
         d.addCallback(self.send_reply, (host, port))
         d.addErrback(self.db_error_handler)
         d.addErrback(self.client_error_handler)
-        d.addErrback(eb_print)
+        #d.addErrback(eb_print)
 
     @print_entry
     def db_error_handler(self, failure):
@@ -361,7 +361,7 @@ class ProbeHandler(DatagramProtocol):
                 probe.id,
                 mreq.type,
                 (probe.arrival_time +
-                datetime.timedelta(seconds=self.config['max_delay'])).isoformat(),
+                datetime.timedelta(seconds=self.config['max_delay'])),
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
@@ -392,7 +392,7 @@ class ProbeHandler(DatagramProtocol):
                 ), [
                 mreq.type,
                 (probe.arrival_time +
-                datetime.timedelta(seconds=self.config['max_delay'])).isoformat(),
+                datetime.timedelta(seconds=self.config['max_delay'])),
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
@@ -422,8 +422,8 @@ class ProbeHandler(DatagramProtocol):
                     measure_start += delay
                 d = cursor.execute(
                         "UPDATE targets SET date_free=%s WHERE id=%s;",
-                        [(measure_start +
-                        datetime.timedelta(seconds=mreq.duration)).isoformat(),
+                        [measure_start +
+                        datetime.timedelta(seconds=mreq.duration),
                         t_id])
                 d.addCallback(lambda _: probe)
             else:
@@ -468,7 +468,7 @@ class ProbeHandler(DatagramProtocol):
             query = ("INSERT INTO devices (ip, date_last_seen, bversion, id) "
                     "VALUES (%s, %s, %s, %s);")
         d = self.dbpool.runOperation(
-                query, [probe.ip, probe.arrival_time.isoformat(), probe.param, probe.id])
+                query, [probe.ip, probe.arrival_time, probe.param, probe.id])
         return d.addCallback(lambda _: probe)
 
     @print_entry
@@ -492,7 +492,7 @@ class ProbeHandler(DatagramProtocol):
             probe.reply = message
         else:
             probe.reply = "pong %s %d" % (
-                    probe.ip, calendar.timegm(probe.arrival_time))
+                    probe.ip, calendar.timegm(probe.arrival_time.timetuple()))
         return defer.succeed(probe)
 
     def stop(self):
