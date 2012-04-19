@@ -25,8 +25,12 @@ $log_probe$
 LANGUAGE plpgsql;
 
 -- targets
+ALTER TABLE targets ALTER COLUMN free_ts DROP DEFAULT;
+
 ALTER TABLE targets ALTER COLUMN free_ts TYPE timestamp
 USING TIMESTAMP 'epoch' + free_ts * INTERVAL '1 second';
+
+ALTER TABLE targets ALTER COLUMN free_ts SET DEFAULT now();
 
 ALTER TABLE targets RENAME COLUMN free_ts to date_free;
 
