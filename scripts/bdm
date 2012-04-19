@@ -4,8 +4,8 @@
 # author: walter.dedonato@unina.it
 
 # Load configuration file
-. ../conf/bdm.conf.example
-. ./bdm_db_localhost.conf
+. ~/etc/bdm.conf
+. ~/etc/bdm_db.conf
 
 default_BDM_PG_HOST='localhost'
 default_BDM_PG_PORT='5432'
