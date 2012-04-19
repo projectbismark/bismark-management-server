@@ -583,13 +583,16 @@ function list()
 			echo -ne $RED
 		fi
 		printf "%-16s %-15s %-7s %-20s %-10s\n" $id $ip $ver $(date -d @$ts +"%Y-%m-%d %H:%M:%S")
+		echo -ne $NO_COLOR
 	done
 	[ "$1" == "notify" ] && ( sendmail "@/tmp/devices.log" ; rm /tmp/devices.log )
 
 	# Dump tunnels table
 	echo -e "${BLUE}\nTunnels:"
+	echo -ne $NO_COLOR
 	echo -ne "${WHITE}"
 	printf "%-16s %-5s %-20s\n" ID PORT START_TIME
+	echo -ne $NO_COLOR
 
 	IFS=$'\n' 
 	for dev in $(query 'SELECT * FROM tunnels ORDER BY device_id;'); do
@@ -603,19 +606,21 @@ function list()
 			echo -ne $RED
 		fi
 		printf "%-16s %-5s %-20s\n" $id $port $(date -d @$ts +"%Y-%m-%d %H:%M:%S")
+		echo -ne $NO_COLOR
 	done
-	echo -ne $NO_COLOR
 
 	# Dump messages table
 	echo -e "${BLUE}\nPending Messages:"
+	echo -ne $NO_COLOR
 	echo -e "${WHITE}ID\tFROM\tTO\tMESSAGE"
-	echo -ne $MAGENTA
+	echo -ne $NO_COLOR
 	IFS=$'\n' 
 	for message in $(query 'SELECT * FROM messages ORDER BY msgfrom,msgto;'); do
 		IFS=$'|' read from to msg <<< "$message"
+		echo -ne $MAGENTA
 		printf "%s\t%s\t%s\n" $from $to $msg
+		echo -ne $NO_COLOR
 	done
-	echo -ne $NO_COLOR
 }
 
 # List measurement servers info
