@@ -571,7 +571,7 @@ function list()
 	echo -ne "${WHITE}"
 	printf "%-16s %-15s %-7s %-20s %-10s\n" ID IP VERSION LAST_PROBE USER
 	IFS=$'\n' 
-	for dev in $(query 'SELECT id,ip,bversion,EXTRACT(epoch from date_trunc('second', date_last_seen)) FROM devices ORDER BY id;'); do
+	for dev in $(query "SELECT id,ip,bversion,EXTRACT(epoch from date_trunc('second', date_last_seen)) FROM devices ORDER BY id;"); do
 		IFS=$'|' read id ip ver ts <<< "$dev"
 		off_time=$(( $(date +%s) - $ts ))
 		if [ $off_time -lt 300 ]; then
