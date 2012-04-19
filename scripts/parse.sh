@@ -4,6 +4,9 @@ pidfile=/home/bismark/var/run/parser_pid
 activedir=/home/bismark/var/data/http_uploads/active
 datadir=/home/bismark/var/data
 
+# Load local db config file (contains passwords, etc.)
+. ~/etc/bdm_db.conf
+
 if [ -e $pidfile ]; then
 	echo "parser running"
 	exit;
