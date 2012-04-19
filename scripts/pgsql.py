@@ -19,24 +19,24 @@ OPT_ENV_VARS = [('BDM_PG_PORT', 5432),
                 ]
 
 def sqlconn():
-    config = {}
-    for evname in REQ_ENV_VARS:
-      try:
-          config[evname] = os.environ[evname]
-      except KeyError:
-          print(("Environment variable '%s' required and not defined. "
-                  "Terminating.") % evname)
-          sys.exit(1)
-    for (evname, default_val) in OPT_ENV_VARS:
-      config[evname] = os.environ.get(evname) or default_val
-
+  config = {}
+  for evname in REQ_ENV_VARS:
     try:
+        config[evname] = os.environ[evname]
+    except KeyError:
+      print(("Environment variable '%s' required and not defined. "
+                "Terminating.") % evname)
+      sys.exit(1)
+  for (evname, default_val) in OPT_ENV_VARS:
+    config[evname] = os.environ.get(evname) or default_val
+
+  try:
     conn = pgsql.connect(
-            dbname=config['BDM_PG_DATA_DBNAME'],
-            host=config['BDM_PG_HOST'],
-            user=config['BDM_PG_USER'],
-            passwd==config['BDM_PG_PASSWORD'])
-    #cursor = conn.cursor() 
+          dbname=config['BDM_PG_DATA_DBNAME'],
+          host=config['BDM_PG_HOST'],
+          user=config['BDM_PG_USER'],
+          passwd=config['BDM_PG_PASSWORD'])
+  #cursor = conn.cursor() 
   except:
     print "Could not connect to sql server"
     sys.exit()
