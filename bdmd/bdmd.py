@@ -1,4 +1,4 @@
-#!./virt-python/bin/python
+#!/usr/bin/env python
 
 import calendar
 import datetime
