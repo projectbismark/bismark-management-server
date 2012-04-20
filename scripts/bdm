@@ -39,7 +39,7 @@ function help()
 
 	    console  <dev_id>                    Open a console on <dev_id> over the SSH tunnel
 	
-	    copy     <file> <dev_id>             Copy file to <dev_id> /tmp directory
+	    copy     <dev_id> <file>             Copy file to <dev_id> /tmp directory
 
 	    gtunnel  <dev_id> [port]             Open a globally accessible tunnel to <dev_id> (default: random)
 
@@ -70,6 +70,8 @@ function help()
 	    clearmsg  [id]                  Delete pending messages
 
 	    cleardev  [id]                  Delete device from list
+
+	    expand    <dev_id>              Expand the shortened device ID into its full device ID.
 
 	Options:
 	
@@ -123,31 +125,35 @@ function parse()
 				done
 			fi
 		else
-			check_device_id $2 || { echo -e "Unknown device $2\n"; help tunnel; }
-			[ $3 == "on" ] && start_tunnel $2 $4
-			[ $3 == "off" ] && stop_tunnel $2 $4
+			device_id=$2
+			check_device_id 'device_id' || help tunnel;
+			[ $3 == "on" ] && start_tunnel $device_id $4
+			[ $3 == "off" ] && stop_tunnel $device_id $4
 		fi
 	;;
 	gtunnel)
 		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help gtunnel; }
 		[ $2 == ALL ] && { echo -e "ALL not allowed\n"; help gtunnel; }
-		check_device_id $2 || { echo -e "Unknown device $2\n"; help gtunnel; }
-		start_gtunnel $2 $3 
+		device_id=$2
+		check_device_id 'device_id' || help gtunnel;
+		start_gtunnel $device_id $3
 	;;
 	console)
 		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help console; }
 		[ $2 == ALL ] && { echo -e "ALL not allowed\n"; help console; }
-		check_device_id $2 || { echo -e "Unknown device $2\n"; help console; }
-		echo "Connecting to $2"
-		console $2
+		device_id=$2
+		check_device_id 'device_id' || help console;
+		echo "Connecting to $device_id"
+		console $device_id
 	;;
 	exec)
 		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help exec; }
 		[ $3 ] || { echo -e "Missing parameter: <command>\n"; help exec; }
 		[ $2 == ALL ] && { echo -e "ALL not allowed\n"; help exec; }
-		check_device_id $2 || { echo -e "Unknown device $2\n"; help exec; }
-		echo "Executing \"${p#* * }\" on $2"
-		console $2 ${p#* * }
+		device_id=$2
+		check_device_id 'device_id' || help exec;
+		echo "Executing \"${p#* * }\" on $device_id"
+		console $device_id ${p#* * }
 	;;
 	list)	
 		list $2
@@ -159,45 +165,59 @@ function parse()
 		read_msg
 	;;
 	blacklist)
-		[ $2 ] && { [ $3 ] || { echo -e "Missing parameter: on|off\n"; help blacklist; } }
-		blacklist $2 $3
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help blacklist; }
+		[ $3 ] || { echo -e "Missing parameter: on|off\n"; help blacklist; }
+		device_id=$2
+		check_device_id 'device_id' || help blacklist;
+		blacklist $device_id $3
 	;;
 	upgrade)
 		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help upgrade; }
-		check_device_id $2 || { echo -e "Unknown device $2\n"; help upgrade; }
-		upgrade $2 $3 
+		device_id=$2
+		check_device_id 'device_id' || help upgrade;
+		upgrade $device_id $3
 	;;
-	config)
-		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help config; }
-		[ $2 == ALL ] && echo $* | grep -q DEVICE_ID && { echo -e "ALL not allowed for DEVICE_ID\n"; help config; }
-		check_device_id $2 || { echo -e "Unknown device $2\n"; help config; }
-		$* 
-	;;
+#	config)
+#		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help config; }
+#		[ $2 == ALL ] && echo $* | grep -q DEVICE_ID && { echo -e "ALL not allowed for DEVICE_ID\n"; help config; }
+#		device_id=$2
+#		check_device_id 'device_id' || help config;
+#		$*
+#	;;
 	setuser)
 		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help setuser; }
 		[ $3 ] || { echo -e "Missing parameter: <username>\n"; help setuser; }
-		check_device_id $2 || { echo -e "Unknown device $2\n"; help setuser; }
-		setuser $2 $3
+		device_id=$2
+		check_device_id 'device_id' || help setuser;
+		setuser $device_id $3
 	;;
 	settunnel)
 		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help settunnel; }
 		[ $3 ] || { echo -e "Missing parameter: <port>\n"; help settunnel; }
-		settunnel $2 $3
+		device_id=$2
+		check_device_id 'device_id' || help blacklist;
+		settunnel $device_id $3
 	;;
 	updatetunnels)
 		updatetunnels
 	;;
 	copy)
-		[ $2 ] || { echo -e "Missing parameter: <file>\n"; help copy; }
-		[ $3 ] || { echo -e "Missing parameter: <dev_id>\n"; help copy; }
-		check_device_id $2 || { echo -e "Unknown device $2\n"; help copy; }
-		copy $2 $3
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help copy; }
+		[ $3 ] || { echo -e "Missing parameter: <file>\n"; help copy; }
+		device_id=$2
+		check_device_id 'device_id' || help copy;
+		copy $device_id $3
 	;;
 	clearmsg)
 		clearmsg $2 
 	;;
 	cleardev)
 		cleardev $2 
+	;;
+	expand)
+		[ $2 ] || { echo -e "Missing parameter: <dev_id>\n"; help expand_id; }
+		device_id=$2
+		{ check_device_id 'device_id' && echo "$device_id"; } || exit 1
 	;;
 	*)
 		[ $1 ] && echo "Unknown command: $1"
@@ -258,13 +278,21 @@ function recv_msg()
 }
 
 # Check device ID
-# $1 = device id
+# $1 = name of variable containing device id (to be deferenced by this func)
 function check_device_id()
 {
-	if [ $(query "SELECT id FROM devices WHERE id='$1';") ]; then
+	eval "cdi_devid=\"\${$1}\""
+	num_devices=$(query "SELECT count(id) FROM devices WHERE id LIKE '%$cdi_devid';")
+	if [ $num_devices -eq 1 ]; then
+		cdi_devid=$(query "SELECT id FROM devices WHERE id LIKE '%$cdi_devid' LIMIT 1;")
+		eval "$1=\${cdi_devid}"
 		return 0
-	else
+	elif [ $num_devices -lt 1 ]; then
+		echo "Unknown device '$cdi_devid'."
 		return 1
+	else
+		echo "'$cdi_devid' is ambiguous. Be more specific."
+		return 2
 	fi
 }
 
@@ -672,19 +700,19 @@ function mslist()
 }
 
 # Copy file to device /tmp directory
-# $1 = file
-# $2 = dev id
+# $1 = dev_id
+# $2 = file
 function copy()
 {
 	if [ ! $FWD_PORT ]; then 
-		start_tunnel $2
+		start_tunnel $1
 		case $? in
 		0) new=1 ;;
 		2) return 1;;
 		esac
 	fi
 
-	scp -P $FWD_PORT $SSH_OPTIONS -i $SSH_KEY $1 $SSH_USER@127.0.0.1:/tmp 2>/dev/null 
+	scp -P $FWD_PORT $SSH_OPTIONS -i $SSH_KEY $2 $SSH_USER@127.0.0.1:/tmp 2>/dev/null
 }
 
 # Read messages
