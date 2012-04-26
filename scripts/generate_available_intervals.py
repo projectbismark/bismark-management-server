@@ -8,9 +8,6 @@ import json
 
 import psycopg2
 
-# routers must be down > 180s for an interval to end
-DOWNTIME_THRESHOLD = datetime.timedelta(seconds=180)
-
 REQ_ENV_VARS = ['BDM_PG_HOST',
                 'BDM_PG_USER',
                 'BDM_PG_PASSWORD',
@@ -23,10 +20,15 @@ OPT_ENV_VARS = [('BDM_PG_PORT', 5432),
                 ]
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print("USAGE %s output_filename.json" % sys.argv[0])
+    if not (2 <= len(sys.argv) <= 3):
+        print("USAGE %s output_filename.json [DOWNTIME_THRESHOLD=180]"
+              % sys.argv[0])
         sys.exit(2)
-    f = open(sys.argv[1])
+    f = open(sys.argv[1], 'w')
+    if len(sys.argv) == 3:
+        DOWNTIME_THRESHOLD = datetime.timedelta(seconds=int(sys.argv[2]))
+    else:
+        DOWNTIME_THRESHOLD = datetime.timedelta(seconds=180)
 
     config = {}
     for evname in REQ_ENV_VARS:
@@ -62,9 +64,9 @@ if __name__ == '__main__':
         if row[0] != current_id:
             if current_id is not None:
                 current_intervals.append(
-                        (calendar.timegm(interval_start)*1000,
-                        calendar.timegm(interval_end)*1000))
-                intervals_by_id[current_id] = current_intervals
+                        (calendar.timegm(interval_start.timetuple())*1000,
+                        calendar.timegm(interval_end.timetuple())*1000))
+                intervals_by_id[current_id] = (zip(*current_intervals))
                 current_intervals = []
             current_id = row[0]
             interval_start = row[1]
@@ -72,10 +74,17 @@ if __name__ == '__main__':
         else:
             if (row[1] - interval_end) > DOWNTIME_THRESHOLD:
                 current_intervals.append(
-                        (calendar.timegm(interval_start)*1000,
-                        calendar.timegm(interval_end)*1000))
+                        (calendar.timegm(interval_start.timetuple())*1000,
+                        calendar.timegm(interval_end.timetuple())*1000))
                 interval_start = row[1]
             interval_end = row[1]
+    current_intervals.append(
+            (calendar.timegm(interval_start.timetuple())*1000,
+            calendar.timegm(interval_end.timetuple())*1000))
+    intervals_by_id[current_id] = (zip(*current_intervals))
 
-    json.dump(intervals_by_id, f)
+    json.dump(
+            (intervals_by_id,
+            calendar.timegm(datetime.datetime.utcnow().timetuple())*1000),
+            f)
     f.close()
