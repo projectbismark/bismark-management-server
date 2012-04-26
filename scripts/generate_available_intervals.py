@@ -25,6 +25,7 @@ OPT_ENV_VARS = [('BDM_PG_PORT', 5432),
 if __name__ == '__main__':
     if len(sys.argv) != 2:
         print("USAGE %s output_filename.json" % sys.argv[0])
+        sys.exit(2)
     f = open(sys.argv[1])
 
     config = {}
