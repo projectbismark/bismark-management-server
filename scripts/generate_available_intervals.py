@@ -4,7 +4,7 @@ import calendar
 import datetime
 import os
 import sys
-import simplejson
+import json
 
 import psycopg2
 
@@ -76,5 +76,5 @@ if __name__ == '__main__':
                 interval_start = row[1]
             interval_end = row[1]
 
-    simplejson.dump(intervals_by_id, f)
+    json.dump(intervals_by_id, f)
     f.close()
