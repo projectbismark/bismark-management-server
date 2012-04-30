@@ -11,7 +11,7 @@
 . ~/etc/bdm.conf
 
 cmd=$(echo "$SSH_ORIGINAL_COMMAND" | gawk '
-	($1 == "scp") && ($(NF-1) ~ "-t") && ($NF ~ "var/data/") && ! ($NF ~ "\\.\\.") && ! /[;$`]/ { print }
+	($1 == "scp") && ($(NF-1) ~ "-t") && ($NF ~ "var/data") && ! ($NF ~ "\\.\\.") && ! /[;$`]/ { print }
 	($1 == "rshell") && ! /[;$`]/ { print "bdm settunnel " $2 " " $3 }
 ')
 
@@ -19,6 +19,7 @@ $cmd
 
 if [ "${cmd:0:3}" == "bdm" ]; then
 	while [ true ]; do
-		read 
+		read
+		sleep 10
 	done
 fi
