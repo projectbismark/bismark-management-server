@@ -5,17 +5,14 @@ import datetime
 import os
 import sys
 import pprint
+import socket
 import re
 
 import psycopg2
 
-UPDATE_FREQUENCY = datetime.timedelta(days=30)
-UPDATE_FREQUENCY = datetime.timedelta(days=0)
-OLD_DEVICE_THRESHOLD = datetime.timedelta(days=30)
+OLD_DEVICE_THRESHOLD = datetime.timedelta(days=7)
 FRESHNESS_THRESHOLD = datetime.timedelta(days=30)
 #FRESHNESS_THRESHOLD = datetime.timedelta(days=730)
-CLUSTER_PREFERENCES = [30, 20, 10]
-MLAB_ONLY = True
 
 REQ_ENV_VARS = ['VAR_DIR',
                 'BDM_PG_HOST',
@@ -183,12 +180,11 @@ def find_update_candidates(dbconn):
     return [x for x in (outofdate_devices + unknown_devices)
             if x[0] not in old_devices]
 
-def select_targets(mgmt_dbconn, data_dbconn, candidates, mserver_db):
+def filter_devices(mgmt_dbconn, data_dbconn, candidates):
     dcur = data_dbconn.cursor()
-    device_targets = {}
+    devices_to_ping = []
     candidates = [c for c in candidates if re.match('^OW[0-9A-F]{12}$', c[0])]
     for c in candidates:
-        ordered_targets = []
         dcur.execute((
                 "SELECT dstip, eventstamp, "
                 "   average, median, minimum, maximum, std "
@@ -198,67 +194,28 @@ def select_targets(mgmt_dbconn, data_dbconn, candidates, mserver_db):
                 [c[0][2:], (datetime.datetime.utcnow() -
                 FRESHNESS_THRESHOLD).isoformat()])
 
-        if dcur.rowcount and dcur.rowcount > 0:
-            # device has fresh mserver_rtt data
-            ordered_targets = ordered_targets_from_data(
-                    dcur.fetchall(), mserver_db)
-        elif dcur.rowcount is not None and dcur.rowcount == 0:
+        if dcur.rowcount is not None and dcur.rowcount == 0:
             # no rtt data, we need to ping from the servers
-            dcur.execute((
-                    "SELECT dstip, eventstamp, "
-                    "   average, median, minimum, maximum, std "
-                    "FROM m_mserver_rping "
-                    "WHERE deviceid = %s "
-                    "AND eventstamp > %s "),
-                    [c[0][2:], (datetime.datetime.utcnow() -
-                    FRESHNESS_THRESHOLD).isoformat()])
-            if dcur.rowcount and dcur.rowcount > 0:
-                ordered_targets = ordered_targets_from_data(
-                        dcur.fetchall(), mserver_db)
-            else:
-                print("ERROR: device '%s' has no RTT data." % c[0])
-        else:
-            print("ERROR: couldn't get db rowcount")
+            devices_to_ping.append(c[0])
 
-        device_targets[c[0]] = []
-        if ordered_targets:
-            if MLAB_ONLY:
-                device_targets[c[0]] = select_mlab_grouped_targets(
-                        ordered_targets, mdb)
+def ping_devices(mgmt_dbconn, data_dbconn, devices, mserver_db):
+    dcur = data_dbconn.cursor()
+    dcur.execute((
+            # TODO: need to account for direction here!!
+            "SELECT t1.deviceid, t1.id, t1.eventstamp "
+            "FROM traceroutes as t1 "
+            "WHERE t1.eventstamp >= ( "
+            "   SELECT max(t2.eventstamp) "
+            "   FROM traceroutes as t2 "
+            "   WHERE t2.deviceid = t1.deviceid "
+            "   ) "
+            "AND t1.eventstamp > %s "
+            "ORDER BY t1.eventstamp;"),
+            [(datetime.datetime.utcnow() - FRESHNESS_THRESHOLD).isoformat()])
+    rows = dcur.fetchall()
+    traceroute_ids = dict([r[0:20 for r in rows])
+    for d in devices:
 
-    return device_targets
-
-def ordered_targets_from_data(resultset, mserver_db):
-    min_latency = {}
-    for row in resultset:
-        fqdn = mserver_db.lookup_ptr(row[0], row[1])
-        min_latency.setdefault(fqdn, []).append(row[4])
-    median_minlatencies = []
-    for fqdn in min_latency:
-        min_latency[fqdn].sort()
-        quick_median = min_latency[fqdn][(len(min_latency[fqdn])+1)/2-1]
-        median_minlatencies.append((fqdn, quick_median))
-    median_minlatencies.sort(key=lambda x: x[1])
-    pprint.pprint(median_minlatencies)
-    # TODO: return both fqdn and latency measured for logging/etc.
-    return [x[0] for x in median_minlatencies]
-
-def ordered_targets_from_ping(deviceid, dbconn):
-    return None
-
-def select_mlab_grouped_targets(ordered_targets, mserver_db):
-    target_groups = []
-    ranked_targets = []
-    for fqdn in ordered_targets:
-        m = re.search('(\w+)\.measurement-lab.org.$', fqdn)
-        if m and m.groups()[0] not in target_groups:
-            target_groups.append(m.groups()[0])
-            if len(target_groups) == len(CLUSTER_PREFERENCES):
-                break
-    for i in xrange(len(target_groups)):
-        for fqdn in mserver_db.fqdns_by_mlab_group[target_groups[i]]:
-            ranked_targets.append((fqdn, CLUSTER_PREFERENCES[i]))
-    return ranked_targets
 
 if __name__ == '__main__':
     config = {}
@@ -295,8 +252,12 @@ if __name__ == '__main__':
             start_date=(datetime.datetime.utcnow() - FRESHNESS_THRESHOLD))
     update_candidates = find_update_candidates(mconn)
     pprint.pprint(update_candidates)
-    updated_device_targets = select_targets(mconn, dconn, update_candidates, mdb)
-    pprint.pprint(updated_device_targets)
+    #dcur = dconn.cursor()
+    #dcur.execute('select distinct deviceid from m_mserver_rtt;')
+    #update_candidates = [('OW'+''.join(x[0].split(':')).upper(),) for x in dcur.fetchall()]
+    #pprint.pprint(update_candidates)
+    ping_candidates = filter_devices(mconn, dconn, update_candidates)
+    pprint.pprint(ping_candidates)
     #update_targets(conn, updated_device_targets)
 
 
@@ -314,3 +275,47 @@ if __name__ == '__main__':
 # INSERT INTO device_targets (device_id, target_id, preference, date_effective,
 # is_enabled) VALUES (%s, %s, %s, %s, TRUE)
 # COMMIT;
+
+def mserver_ping(ip, mserver_hostname):
+    ping_out = {}
+    output = netcat(mserver_hostname, 1101, 'ping %s -q\n' % ip)
+    try:
+        groups = re.match(
+                '(\d+) packets transmitted, (\d+) received',
+                output[2]).groups()
+        ping_out['count_sent'] = int(groups[0])
+        ping_out['count_recv'] = int(groups[1])
+    except (AttributeError, IndexError):
+        pass
+    try:
+        groups = re.match(
+                'rtt min/avg/max/mdev = '
+                '((?:\d+(?:\.\d+)?/){3}(?:\d+(?:\.\d+)?))',
+                output[3]).groups()[0].split('/')
+        ping_out['rtt_min']    = float(groups[0])
+        ping_out['rtt_avg']    = float(groups[1])
+        ping_out['rtt_max']    = float(groups[2])
+        ping_out['rtt_stddev'] = float(groups[3])
+    except (AttributeError, IndexError):
+        pass
+    return ping_out
+
+# based on
+# http://stackoverflow.com/questions/1908878/netcat-implementation-in-python
+def netcat(hostname, port, content):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(5)
+    output = []
+    try:
+        s.connect((hostname, port))
+        s.sendall(content)
+        s.settimeout(20)
+        while 1:
+            data = s.recv(1024)
+            if data == "":
+                break
+            output.extend(data.strip().split('\n'))
+        s.close()
+    except socket.timeout:
+        output = []
+    return [x for x in output if x]
