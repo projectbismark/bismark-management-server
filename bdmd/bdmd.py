@@ -303,7 +303,7 @@ class ProbeHandler(DatagramProtocol):
             d = self.dbpool.runOperation(
                     ("INSERT INTO messages (msgfrom, msgto, msg) "
                     "VALUES (%s, 'BDM', %s);"), [probe.id, probe.param])
-            return d.addCallback(lambda _: None)
+        return d.addCallback(lambda _: None)
 
     @print_entry
     def handle_measure_req(self, probe):
