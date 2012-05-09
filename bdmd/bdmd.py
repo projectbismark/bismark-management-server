@@ -238,7 +238,7 @@ class ProbeHandler(DatagramProtocol):
                     "latency('%s %s ...')=%.3f" %
                     (probe.id, probe.cmd, latency))
 
-    @print_entry
+    #@print_entry
     def db_error_handler(self, failure):
         # TODO: http://archives.postgresql.org/psycopg/2011-02/msg00039.php
         failure.trap(psycopg2.Error)
@@ -246,20 +246,20 @@ class ProbeHandler(DatagramProtocol):
         print(dir(failure.value))
         print(failure.value)
 
-    @print_entry
+    #@print_entry
     def client_error_handler(self, failure):
         failure.trap(ClientRequestException)
         print("trapped ClientRequestException")
         print(failure.value)
 
-    @print_entry
+    #@print_entry
     def check_blacklist(self, probe):
         d = self.dbpool.runQuery(
                 "SELECT device_id FROM blacklist where device_id=%s;",
                         [probe.id])
         return d.addCallback(self.check_blacklist_qh, probe)
 
-    @print_entry
+    #@print_entry
     def check_blacklist_qh(self, resultset, probe):
         # TODO being on the blacklist could be handled with an errback with a
         #      special blacklist exception...
@@ -267,7 +267,7 @@ class ProbeHandler(DatagramProtocol):
             probe.blacklisted = True
         return defer.succeed(probe)
 
-    @print_entry
+    #@print_entry
     def dispatch_response(self, probe):
         d = None
         if not probe.blacklisted:
@@ -284,13 +284,13 @@ class ProbeHandler(DatagramProtocol):
                 d = defer.succeed(probe)
         return d
 
-    @print_entry
+    #@print_entry
     def send_reply(self, probe, (host, port)):
         if probe and probe.reply:
             self.transport.write("%s" % probe.reply, (host, port))
         return probe
 
-    @print_entry
+    #@print_entry
     def handle_log_req(self, probe):
         print("%s - Received log from %s: %s" %
                 (probe.arrival_time.isoformat(), probe.id, probe.param))
@@ -315,7 +315,7 @@ class ProbeHandler(DatagramProtocol):
                     "VALUES (%s, 'BDM', %s);"), [probe.id, probe.param])
         return d.addCallback(lambda _: None)
 
-    @print_entry
+    #@print_entry
     def handle_measure_req(self, probe):
         try:
             # in the case of measurement request probes, the payload actually
@@ -342,7 +342,7 @@ class ProbeHandler(DatagramProtocol):
             return self.dbpool.runInteraction(
                     self.measure_req_defaultinteraction, probe, mreq)
 
-    @print_entry
+    #@print_entry
     def measure_req_interaction(self, cursor, probe, mreq):
         d = cursor.execute((
                 "SELECT t.id, ti.ip, ts.info, t.date_free, t.curr_cli, "
@@ -375,7 +375,7 @@ class ProbeHandler(DatagramProtocol):
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
-    @print_entry
+    #@print_entry
     def measure_req_defaultinteraction(self, cursor, probe, mreq):
         d = cursor.execute((
                 "SELECT t.id, ti.ip, ts.info, t.date_free, t.curr_cli, "
@@ -406,7 +406,7 @@ class ProbeHandler(DatagramProtocol):
                 ])
         return d.addCallback(self.measure_req_qh, probe, mreq)
 
-    @print_entry
+    #@print_entry
     def measure_req_qh(self, cursor, probe, mreq):
         d = None
         resultset = cursor.fetchone()
@@ -456,20 +456,20 @@ class ProbeHandler(DatagramProtocol):
             d = defer.succeed(probe)
         return(d)
 
-    @print_entry
+    #@print_entry
     def handle_ping_req(self, probe):
         d = self.register_device(probe)
         d.addCallback(self.check_messages)
         d.addCallback(self.prepare_reply, probe)
         return(d)
 
-    @print_entry
+    #@print_entry
     def register_device(self, probe):
         d = self.dbpool.runQuery(
                 "SELECT id FROM devices where id=%s;", [probe.id])
         return d.addCallback(self.register_device_qh, probe)
 
-    @print_entry
+    #@print_entry
     def register_device_qh(self, resultset, probe):
         if resultset:
             query = ("UPDATE devices SET ip=%s, date_last_seen=%s, bversion=%s "
@@ -481,7 +481,7 @@ class ProbeHandler(DatagramProtocol):
                 query, [probe.ip, probe.arrival_time, probe.param, probe.id])
         return d.addCallback(lambda _: probe)
 
-    @print_entry
+    #@print_entry
     def check_messages(self, probe):
         d = self.dbpool.runQuery(("SELECT id, msgfrom, msgto, msg "
                 "FROM messages WHERE msgto=%s LIMIT 1;"), [probe.id])
