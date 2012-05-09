@@ -225,9 +225,18 @@ class ProbeHandler(DatagramProtocol):
         d = self.check_blacklist(p)
         d.addCallback(self.dispatch_response)
         d.addCallback(self.send_reply, (host, port))
+        d.addCallback(self.output_latency)
         d.addErrback(self.db_error_handler)
         d.addErrback(self.client_error_handler)
         #d.addErrback(eb_print)
+
+    def output_latency(self, probe):
+        if probe:
+            latency = (datetime.datetime.utcnow() -
+                       probe.arrival_time).total_seconds()
+            print_debug(
+                    "latency('%s %s ...')=%.3f" %
+                    (probe.id, probe.cmd, latency))
 
     @print_entry
     def db_error_handler(self, failure):
@@ -279,6 +288,7 @@ class ProbeHandler(DatagramProtocol):
     def send_reply(self, probe, (host, port)):
         if probe and probe.reply:
             self.transport.write("%s" % probe.reply, (host, port))
+        return probe
 
     @print_entry
     def handle_log_req(self, probe):
