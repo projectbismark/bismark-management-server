@@ -232,10 +232,12 @@ class ProbeHandler(DatagramProtocol):
 
     def output_latency(self, probe):
         if probe:
-            latency = (datetime.datetime.utcnow() -
-                       probe.arrival_time).total_seconds()
+            dt = (datetime.datetime.utcnow() - probe.arrival_time)
+            latency = (
+                    td.microseconds +
+                    (td.seconds + td.days * 24 * 3600) * 10.0**6) / 10.0**6
             print_debug(
-                    "latency('%s %s ...')=%.3f" %
+                    "    latency('%s %s ...')=%.3f" %
                     (probe.id, probe.cmd, latency))
 
     #@print_entry
