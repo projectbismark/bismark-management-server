@@ -288,7 +288,7 @@ class ProbeHandler(DatagramProtocol):
     def send_reply(self, probe, (host, port)):
         if probe and probe.reply:
             self.transport.write("%s" % probe.reply, (host, port))
-        return probe
+        return defer.succeed(probe)
 
     #@print_entry
     def handle_log_req(self, probe):
