@@ -131,25 +131,8 @@ class MserverDatabase(object):
         return self.id_by_fqdn.get(fqdn, None)
 
 
-def print_debug_factory(is_debug):
-    if is_debug:
-        def f(s):
-            print(s)
-    else:
-        def f(s):
-            pass
-    return f
-
-
 def print_error(s):
     sys.stderr.write("%s\n" % s)
-
-
-def print_entry(f):
-    def wrapper(*args, **kwargs):
-        print_debug(f.func_name)
-        return f(*args, **kwargs)
-    return wrapper
 
 def find_update_candidates(mgmt_dbconn):
     cur = mgmt_dbconn.cursor()
@@ -182,47 +165,43 @@ def find_update_candidates(mgmt_dbconn):
     devices = outofdate_devices + unknown_devices
     return [d for d in devices if re.match('^OW[0-9A-F]{12}$', d[0], re.I)]
 
-def select_device_targets(data_dbconn, candidates, mserver_db):
+def select_device_targets(data_dbconn, device_id, mserver_db):
     dcur = data_dbconn.cursor()
-    device_targets = {}  # indexed by MAC address
-    for device_id, _ in candidates:
-        device_targets[device_id] = []
-        rtt_data = None
+    device_targets = []
+    rtt_data = None
+    dcur.execute((
+            "SELECT dstip, eventstamp, "
+            "   average, median, minimum, maximum, std "
+            "FROM m_mserver_rtt "
+            "WHERE deviceid = %s "
+            "AND eventstamp > %s "),
+            [device_id[2:], (GLOBAL_UTCNOW - FRESHNESS_THRESHOLD)])
+
+    if dcur.rowcount and dcur.rowcount > 0:
+        # device has fresh mserver_rtt data
+        rtt_data = dcur.fetchall()
+    elif dcur.rowcount is not None and dcur.rowcount == 0:
+        # no rtt data, we need to use mserver -> device ping data
         dcur.execute((
                 "SELECT dstip, eventstamp, "
                 "   average, median, minimum, maximum, std "
-                "FROM m_mserver_rtt "
+                "FROM m_mserver_rping "
                 "WHERE deviceid = %s "
                 "AND eventstamp > %s "),
                 [device_id[2:], (GLOBAL_UTCNOW - FRESHNESS_THRESHOLD)])
-
         if dcur.rowcount and dcur.rowcount > 0:
-            # device has fresh mserver_rtt data
             rtt_data = dcur.fetchall()
-        elif dcur.rowcount is not None and dcur.rowcount == 0:
-            # no rtt data, we need to use mserver -> device ping data
-            dcur.execute((
-                    "SELECT dstip, eventstamp, "
-                    "   average, median, minimum, maximum, std "
-                    "FROM m_mserver_rping "
-                    "WHERE deviceid = %s "
-                    "AND eventstamp > %s "),
-                    [device_id[2:], (GLOBAL_UTCNOW - FRESHNESS_THRESHOLD)])
-            if dcur.rowcount and dcur.rowcount > 0:
-                rtt_data = dcur.fetchall()
-        else:
-            print("ERROR: couldn't get db rowcount")
-            continue
+    else:
+        print("ERROR: couldn't get db rowcount")
 
-        if not rtt_data:
-            print("ERROR: device '%s' has no RTT data." % device_id)
-            continue
-
+    if rtt_data:
         ordered_targets = select_targets_by_rtt(rtt_data, mserver_db)
         if ordered_targets:
             if MLAB_ONLY:
-                device_targets[device_id] = select_mlab_targets_by_group(
+                device_targets = select_mlab_targets_by_group(
                         ordered_targets, mserver_db)
+    else:
+        print("ERROR: device '%s' has no RTT data." % device_id)
 
     return device_targets
 
@@ -258,27 +237,26 @@ def select_mlab_targets_by_group(ordered_targets, mserver_db):
             ranked_targets.append((fqdn, MLAB_GROUP_PREFERENCES[i]))
     return ranked_targets
 
-def apply_device_targets(mgmt_dbconn, device_targets, mserver_db):
-    for device_id, ranked_targets in device_targets:
-        if ranked_targets:
-            cur = mgmt_dbconn.cursor()
-            cur.execute((
-                    "UPDATE device_targets "
-                    "SET is_enabled = FALSE "
-                    "WHERE is_enabled = TRUE "
-                    "AND is_permanent = FALSE "
-                    "AND device_id = %s;"),
-                    [device_id])
-            target_tuples = [
-                    (device_id, mserver_db.lookup_id(fqdn), pref,
-                    GLOBAL_UTCNOW) for (fqdn, pref) in ranked_targets]
-            cur.executemany((
-                    "INSERT INTO device_targets "
-                    "(device_id, target_id, preference, date_effective, "
-                    "is_enabled, is_permanent) "
-                    "VALUES (%s, %s, %s, %s, TRUE, FALSE);"),
-                    target_tuples)
-            mgmt_dbconn.commit()
+def apply_device_targets(mgmt_dbconn, device_id, ranked_targets, mserver_db):
+    if ranked_targets:
+        cur = mgmt_dbconn.cursor()
+        cur.execute((
+                "UPDATE device_targets "
+                "SET is_enabled = FALSE "
+                "WHERE is_enabled = TRUE "
+                "AND is_permanent = FALSE "
+                "AND device_id = %s;"),
+                [device_id])
+        target_tuples = [
+                (device_id, mserver_db.lookup_id(fqdn), pref, GLOBAL_UTCNOW)
+                for (fqdn, pref) in ranked_targets]
+        cur.executemany((
+                "INSERT INTO device_targets "
+                "(device_id, target_id, preference, date_effective, "
+                "is_enabled, is_permanent) "
+                "VALUES (%s, %s, %s, %s, TRUE, FALSE);"),
+                target_tuples)
+        mgmt_dbconn.commit()
 
 def main(config):
     mconn = psycopg2.connect(
@@ -301,9 +279,11 @@ def main(config):
             start_date=(GLOBAL_UTCNOW - FRESHNESS_THRESHOLD))
     update_candidates = find_update_candidates(mconn)
     pprint.pprint(update_candidates)
-    device_targets = select_device_targets(dconn, update_candidates, mdb)
-    pprint.pprint(device_targets)
-    apply_device_targets(mconn, device_targets, mdb)
+    for device_id, _ in update_candidates:
+        device_targets = select_device_targets(dconn, device_id, mdb)
+        print(device_id)
+        pprint.pprint(device_targets)
+        #apply_device_targets(mconn, device_id, device_targets, mdb)
 
 
 if __name__ == '__main__':
@@ -317,8 +297,5 @@ if __name__ == '__main__':
             sys.exit(1)
     for (evname, default_val) in OPT_ENV_VARS:
         config[evname] = os.environ.get(evname) or default_val
-
-    print_debug = print_debug_factory(int(config['BDMD_DEBUG']) != 0)
-    print_debug(config)
 
     main(config)
