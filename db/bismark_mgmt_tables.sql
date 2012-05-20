@@ -57,7 +57,7 @@ CREATE TABLE device_targets (
     -- date_effective, is_permanent are only used by update_device_targets.py
     date_effective  timestamp       NOT NULL DEFAULT now(),
     is_permanent    boolean         NOT NULL DEFAULT FALSE,
-    PRIMARY KEY (device_id, target_id)
+    PRIMARY KEY (device_id, target_id, date_effective)
 );
 
 CREATE TABLE target_ips (
