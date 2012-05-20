@@ -128,6 +128,13 @@ class MserverDatabase(object):
         return self.id_by_fqdn.get(fqdn, None)
 
 
+class SelectedTarget(object):
+    def __init__(self, fqdn, latency=None, preference=0):
+        self.fqdn = fqdn
+        self.latency = latency
+        self.pref = preference
+
+
 def print_error(s):
     sys.stderr.write("%s\n" % s)
 
@@ -218,7 +225,8 @@ def select_targets_by_rtt(rtt_resultset, mserver_db):
 def select_mlab_targets_by_group(ordered_targets, mserver_db):
     target_groups = []
     ranked_targets = []
-    for fqdn, _ in ordered_targets:
+    latency_by_fqdn = dict(ordered_targets)
+    for fqdn, latency in ordered_targets:
         m = re.search('(\w+)\.measurement-lab.org.$', fqdn)
         try:
             mlab_group = m.groups()[0]
@@ -230,7 +238,10 @@ def select_mlab_targets_by_group(ordered_targets, mserver_db):
                 break
     for i in xrange(len(target_groups)):
         for fqdn in mserver_db.fqdns_by_mlab_group[target_groups[i]]:
-            ranked_targets.append((fqdn, MLAB_GROUP_PREFERENCES[i]))
+            ranked_targets.append(SelectedTarget(
+                    fqdn,
+                    latency_by_fqdn.get(fqdn, None),
+                    MLAB_GROUP_PREFERENCES[i]))
     return ranked_targets
 
 def apply_device_targets(mgmt_dbconn, device_id, ranked_targets, mserver_db):
@@ -244,8 +255,8 @@ def apply_device_targets(mgmt_dbconn, device_id, ranked_targets, mserver_db):
                 "AND device_id = %s;"),
                 [device_id])
         target_tuples = [
-                (device_id, mserver_db.lookup_id(fqdn), pref, GLOBAL_UTCNOW)
-                for (fqdn, pref) in ranked_targets]
+                (device_id, mserver_db.lookup_id(t.fqdn), t.pref,
+                GLOBAL_UTCNOW) for t in ranked_targets]
         cur.executemany((
                 "INSERT INTO device_targets "
                 "(device_id, target_id, preference, date_effective, "
@@ -273,10 +284,16 @@ def main(config):
     mdb = MserverDatabase(
             mconn,
             start_date=(GLOBAL_UTCNOW - FRESHNESS_THRESHOLD))
+    print("----- %s -----" % GLOBAL_UTCNOW.isoformat())
     update_candidates = find_update_candidates(mconn)
     for device_id, _ in update_candidates:
         device_targets = select_device_targets(dconn, device_id, mdb)
-        #apply_device_targets(mconn, device_id, device_targets, mdb)
+        if device_targets:
+            for target in device_targets:
+                print("Targeting %s => %s (pref %d, latency %s)" %
+                        (device_id, target.fqdn, target.pref,
+                        str(target.latency)))
+            apply_device_targets(mconn, device_id, device_targets, mdb)
 
 
 if __name__ == '__main__':
