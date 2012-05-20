@@ -3,16 +3,13 @@
 import datetime
 import os
 import sys
-import pprint
 import re
 
 import psycopg2
 
 UPDATE_FREQUENCY = datetime.timedelta(days=30)
-UPDATE_FREQUENCY = datetime.timedelta(days=0)
 OLD_DEVICE_THRESHOLD = datetime.timedelta(days=30)
 FRESHNESS_THRESHOLD = datetime.timedelta(days=30)
-#FRESHNESS_THRESHOLD = datetime.timedelta(days=730)
 MLAB_GROUP_PREFERENCES = [30, 20, 10]
 MLAB_ONLY = True
 GLOBAL_UTCNOW = datetime.datetime.utcnow()
@@ -146,8 +143,8 @@ def find_update_candidates(mgmt_dbconn):
             "   GROUP BY dt.device_id "
             "   ) AS t, devices AS d "
             "WHERE t.min_date < %s "
-            "AND t.device_id = d.id "
-            "AND d.last_seen_ts >= %s;"),
+            "AND t.id = d.id "
+            "AND d.date_last_seen >= %s;"),
             [(GLOBAL_UTCNOW - UPDATE_FREQUENCY),
              (GLOBAL_UTCNOW - OLD_DEVICE_THRESHOLD)])
     outofdate_devices = cur.fetchall()
@@ -157,7 +154,7 @@ def find_update_candidates(mgmt_dbconn):
             "   SELECT d.id as did, dt.device_id as dtid "
             "   FROM devices as d"
             "   LEFT OUTER JOIN device_targets as dt ON d.id = dt.device_id "
-            "   WHERE d.last_seen_ts >= %s "
+            "   WHERE d.date_last_seen >= %s "
             "   ) AS t "
             "WHERE dtid IS NULL;"),
             [(GLOBAL_UTCNOW - OLD_DEVICE_THRESHOLD)])
@@ -192,7 +189,7 @@ def select_device_targets(data_dbconn, device_id, mserver_db):
         if dcur.rowcount and dcur.rowcount > 0:
             rtt_data = dcur.fetchall()
     else:
-        print("ERROR: couldn't get db rowcount")
+        print_error("ERROR: couldn't get db rowcount")
 
     if rtt_data:
         ordered_targets = select_targets_by_rtt(rtt_data, mserver_db)
@@ -201,7 +198,7 @@ def select_device_targets(data_dbconn, device_id, mserver_db):
                 device_targets = select_mlab_targets_by_group(
                         ordered_targets, mserver_db)
     else:
-        print("ERROR: device '%s' has no RTT data." % device_id)
+        print_error("ERROR: device '%s' has no RTT data." % device_id)
 
     return device_targets
 
@@ -216,7 +213,6 @@ def select_targets_by_rtt(rtt_resultset, mserver_db):
         quick_median = min_latency[fqdn][(len(min_latency[fqdn])+1)/2-1]
         median_minlatencies.append((fqdn, quick_median))
     median_minlatencies.sort(key=lambda x: x[1])
-    pprint.pprint(median_minlatencies)
     return median_minlatencies
 
 def select_mlab_targets_by_group(ordered_targets, mserver_db):
@@ -278,11 +274,8 @@ def main(config):
             mconn,
             start_date=(GLOBAL_UTCNOW - FRESHNESS_THRESHOLD))
     update_candidates = find_update_candidates(mconn)
-    pprint.pprint(update_candidates)
     for device_id, _ in update_candidates:
         device_targets = select_device_targets(dconn, device_id, mdb)
-        print(device_id)
-        pprint.pprint(device_targets)
         #apply_device_targets(mconn, device_id, device_targets, mdb)
 
 
