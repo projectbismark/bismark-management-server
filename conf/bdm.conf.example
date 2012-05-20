@@ -1,37 +1,33 @@
 # Bismark device manager configuration file
-PATH="$HOME/bin:/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/bin"
-BDMDPY_ROOT="$HOME/bismark-management-server/bdmd"
+export PATH="$HOME/bin:/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/bin"
+export BDMDPY_ROOT="$HOME/bismark-management-server/bdmd"
 
 # UDP Probing options
-SERVER_ADDR=prober.projectbismark.net
-PROBE_PORTS="1028 1234 5353 54321"
+export SERVER_ADDR=prober.projectbismark.net
+export PROBE_PORTS="1028 1234 5353 54321"
 
 # Messaging options
-MSG_TIMEOUT=80
+export MSG_TIMEOUT=80
 
 # SSH Client options
-SSH_KEY=~/bismark/server/keys/bismark_srv
-SSH_PORT_FWD_WAIT=20
-SSH_OPTIONS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+export SSH_KEY=~/bismark/server/keys/bismark_srv
+export SSH_PORT_FWD_WAIT=20
+export SSH_OPTIONS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 # Files and Directories
-VAR_DIR=~/var
-DB_SRC=~/db
-BDMD_LOG_FILE=$VAR_DIR/log/bdmd.log
-
-# Misc
-VERSION=$(cd ~/bismark ; git log --pretty=format:'' | wc -l)
-DEV_TYPES="LS NB WS"
+export VAR_DIR=~/var
+export DB_SRC=~/db
+export BDMD_LOG_FILE=$VAR_DIR/log/bdmd.log
 
 # Colors
-RED='\e[1;31m'
-GREEN='\e[1;32m'
-YELLOW='\e[1;33m'
-BLUE='\e[1;34m'
-MAGENTA='\e[1;35m'
-CYAN='\e[1;36m'
-WHITE='\e[1;37m'
-NO_COLOR='\e[0m'
+export RED='\e[1;31m'
+export GREEN='\e[1;32m'
+export YELLOW='\e[1;33m'
+export BLUE='\e[1;34m'
+export MAGENTA='\e[1;35m'
+export CYAN='\e[1;36m'
+export WHITE='\e[1;37m'
+export NO_COLOR='\e[0m'
 
 ## bdmd.py Configuration
 #export BDMD_TXPG_CONNPOOL=5
