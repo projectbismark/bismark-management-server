@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Load configuration file
+. ~/etc/bdm.conf
+
+# Load local db config file (contains passwords, etc.)
+. ~/etc/bdm_db.conf
+
+if [ ! -e "$BDMDPY_ROOT/virt-python/bin/activate" ]; then
+    $BDMDPY_ROOT/mkvirtualenv.sh
+fi
+source $BDMDPY_ROOT/virt-python/bin/activate
+$BDMDPY_ROOT/update_device_targets.py >> $UPDATE_DEVICE_TARGETS_LOG_FILE 2> /tmp/update_device_targets.error

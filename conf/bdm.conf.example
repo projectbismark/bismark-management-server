@@ -18,6 +18,7 @@ export SSH_OPTIONS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 export VAR_DIR=~/var
 export DB_SRC=~/db
 export BDMD_LOG_FILE=$VAR_DIR/log/bdmd.log
+export UPDATE_DEVICE_TARGETS_LOG_FILE=$VAR_DIR/log/update_device_targets.log
 
 # Colors
 export RED='\e[1;31m'
