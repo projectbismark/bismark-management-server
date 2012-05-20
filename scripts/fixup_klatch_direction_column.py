@@ -14,6 +14,7 @@ FIXUP_TABLES = ['m_bitrate',
                 'm_jitter',
                 'm_pktloss',
                 'm_shaperate',
+                'traceroutes'
                 ]
 
 REQ_ENV_VARS = ['BDM_PG_HOST',
