@@ -450,7 +450,11 @@ function start_tunnel()
 		send_msg $1 fwd $FWD_PORT || { echo -e "\nDelivery to $1 failed"; return 2; }
 	fi
 
-	[ $NOWAIT ] || wait_tunnel $FWD_PORT || return 3
+	if [ $NOWAIT ] || wait_tunnel $FWD_PORT ; then
+		query "INSERT INTO tunnels (device_id, port, date_created) VALUES ('$1', $FWD_PORT, TIMESTAMP 'epoch' + $(date +%s) * INTERVAL '1 second');"
+	else
+		return 3
+	fi
 }
 
 # Connect to the SSH server on the dev
