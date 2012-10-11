@@ -1,0 +1,36 @@
+{
+  "tasks" : [
+    {
+      "unique_id" : "example-lab",
+      "start_date" : "2012-01-01",
+      "include_deviceid" : false,
+      "servers" : [
+        "*.example-lab.org"
+      ],
+      "devices" : [
+        "*"
+      ],
+      "tables"  : [
+        "m_*"
+      ],
+      "scp_destination" : {
+        "user" : "bismark",
+        "host" : "mlab1.atl01.example-lab.org",
+        "remote_root" : "~/data/",
+        "keyfile" : "~/.ssh/example-lab"
+      }
+    },
+  ],
+  "database" : {
+    "database" : "bismark_database",
+    "user" : "bismark",
+    "host" : "localhost",
+    "port" : 5432,
+    "password" : "fakefakefakefake"
+  },
+  "paths" : {
+    "export_dir" : ""
+  }
+}
+
+
