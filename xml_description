@@ -1,0 +1,56 @@
+Each filename has the deviceid and the timestamp of the measurement cycle.
+
+Each measurement type (Except traceroute) has:
+	"measurement param" - the parameter being measured (details below)
+	"tool" - the tool used for the measurement"
+	"srcip"
+	"dstip"
+	"timestamp" in epoch time
+	"avg","std","min","max","med","iqr" - the average, standard deviation, minimum, maximum, median and the interquartile range of the measurements, if multiple samples are being taken, like for ping. For other measurements like bitrates (single sample) they don't mean anything.
+	"direction" - for directional tests like bitrate and pktloss, "dw" denotes from server to device, and "up" the other direction.
+
+For traceroute, the ip address of each hop is a separate row.
+
+Details of measurement parameters:
+
+rtt - latency measurements (ms) using ping to a set of servers across
+the globe; once every 10 minutes. (the set of servers is configurable)
+
+lmrtt - last mile latency (ms) using ping; every 10 minutes. The
+target IP address is obtained using traceroute and disregarding all the
+NAT IP addresses. The idea is to get the latency of the access link; ie
+to the edge of the ISP.
+
+bitrate: upstream and downstream throughput (kbits/s) using NETPERF.
+About once every 2 hours (also depends on server load), and alternates
+between using 1 and 3 parallel TCP threads.
+
+aggl3bitrate: upstream and downstream throughput measured by counting
+the number of bytes reported by ifconfig on the WAN interface of the
+router *while* the bitrate measurements were on. Tries to account for
+cross traffic.
+
+ulrttdw, ulrttup: downstream and upstream last mile RTT (ms) *while*
+the bitrate tests were on - this attempts to measure the "under load"
+latency and quantifies buffering effect in the home network.
+
+capacity: upstream and downstream UDP capacity (kbits/s) using
+SHAPERPROBE, once every 6 hours or so.
+
+shaperate: shaped rate (kbits/s, for eg, powerboost) using SHAPERPROBE.
+
+dnsfailnc, dnsdelaync: Non-cached dns delay aand failure - it tries
+to resolve a few domains to a list of DNS servers (configurable).
+"Non-caches" because it's a fresh request. once every hour or so.
+
+
+dnsfailc, dnsdelayc: Cached dns delay and failure - it tries to
+resolve a few domains to a list of DNS servers (configurable). "Cached"
+because the requests follow the non-cached requests, so it's expected
+the servers cache the responses.
+
+
+jitter: Upstream and downstream Jitter measurements (s) using DITG.
+Once every 30 minutes.
+
+pktloss: Upstream and downstream Packet loss measurements using DITG.
