@@ -43,12 +43,10 @@ dnsfailnc, dnsdelaync: Non-cached dns delay aand failure - it tries
 to resolve a few domains to a list of DNS servers (configurable).
 "Non-caches" because it's a fresh request. once every hour or so.
 
-
 dnsfailc, dnsdelayc: Cached dns delay and failure - it tries to
 resolve a few domains to a list of DNS servers (configurable). "Cached"
 because the requests follow the non-cached requests, so it's expected
 the servers cache the responses.
-
 
 jitter: Upstream and downstream Jitter measurements (s) using DITG.
 Once every 30 minutes.
