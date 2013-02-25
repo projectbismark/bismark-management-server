@@ -14,7 +14,7 @@ For traceroute, the ip address of each hop is a separate row.
 Details of measurement parameters:
 
 rtt - latency measurements (ms) using ping to a set of servers across
-the globe; once every 10 minutes. (the set of servers is configurable)
+the globe; once every 10 minutes. 
 
 lmrtt - last mile latency (ms) using ping; every 10 minutes. The
 target IP address is obtained using traceroute and disregarding all the
