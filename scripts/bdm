@@ -301,11 +301,7 @@ function check_device_id()
 # $1 = port number
 function check_fwd_port()
 {
-	if [ $(netstat -lnt | grep -c "::1\?:$FWD_PORT\>") -gt 0 ]; then
-		return 0
-	else
-		return 1
-	fi
+	lsof -Pn -i TCP:$FWD_PORT >/dev/null
 }
 
 # Generate a valid SSH forwarding port
