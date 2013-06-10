@@ -100,7 +100,7 @@ function parse()
 			MSG_TIMEOUT=$OPTARG
 		;;
 		k)
-			unset RED GREEN YELLOW BLUE MAGENTA CYAN WHITE NO_COLOR
+			disable_colors
 		;;
 		*)
 			echo "Unknown option: $flag $OPTARG"
@@ -110,6 +110,10 @@ function parse()
 	done
 	shift $(( OPTIND - 1 ))	
 	
+	if [ ! -t 1 ]; then
+		disable_colors
+	fi
+
 	# Parse commands
 	case $1 in
 	tunnel)
@@ -812,6 +816,11 @@ function cleardev()
 		read a
 		[ $a == "yes" ] && query "DELETE FROM devices;"
 	fi
+}
+
+function disable_colors()
+{
+	unset RED GREEN YELLOW BLUE MAGENTA CYAN WHITE NO_COLOR
 }
 
 ## Main ##
