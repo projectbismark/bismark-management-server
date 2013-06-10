@@ -466,6 +466,15 @@ function start_tunnel()
 function console()
 {
 	if [ ! $FWD_PORT ]; then 
+		estimated_wait=$(query "SELECT 60 - extract(epoch from date_trunc('second', current_timestamp - date_last_seen)) FROM devices WHERE id = '$1'")
+		if [ "$estimated_wait" -gt 0 ]; then
+			printf "Based on history, you'll need to wait about %d seconds.\n" $estimated_wait
+		elif [ "$estimated_wait" -lt -60 ]; then
+			printf "Based on history, you'll be waiting indefinitely.\n"
+		else
+			printf "Based on history, your tunnel should be ready momentarily.\n"
+		fi
+
 		start_tunnel $1
 		case $? in
 		0) new=1 ;;
