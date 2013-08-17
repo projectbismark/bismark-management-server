@@ -88,7 +88,7 @@ function parse()
 	p=$*
 
 	# Parse options
-	while getopts 'o:p:t:' flag; do
+	while getopts 'o:p:t:k' flag; do
 		case $flag in
 		o)
 			SSH_OPTIONS+=" -$OPTARG"
@@ -99,6 +99,9 @@ function parse()
 		t)
 			MSG_TIMEOUT=$OPTARG
 		;;
+		k)
+			disable_colors
+		;;
 		*)
 			echo "Unknown option: $flag $OPTARG"
 			help
@@ -107,6 +110,10 @@ function parse()
 	done
 	shift $(( OPTIND - 1 ))	
 	
+	if [ ! -t 1 ]; then
+		disable_colors
+	fi
+
 	# Parse commands
 	case $1 in
 	tunnel)
@@ -156,7 +163,7 @@ function parse()
 		console $device_id ${p#* * }
 	;;
 	list)	
-		list $2
+		list $@
 	;;
 	mslist)	
 		mslist
@@ -301,11 +308,7 @@ function check_device_id()
 # $1 = port number
 function check_fwd_port()
 {
-	if [ $(netstat -lnt | grep -c "::1\?:$FWD_PORT\>") -gt 0 ]; then
-		return 0
-	else
-		return 1
-	fi
+	lsof -Pn -i TCP:$FWD_PORT >/dev/null
 }
 
 # Generate a valid SSH forwarding port
@@ -463,6 +466,15 @@ function start_tunnel()
 function console()
 {
 	if [ ! $FWD_PORT ]; then 
+		estimated_wait=$(query "SELECT 60 - extract(epoch from date_trunc('second', current_timestamp - date_last_seen)) FROM devices WHERE id = '$1'")
+		if [ "$estimated_wait" -gt 0 ]; then
+			printf "Based on history, you'll need to wait about %d seconds.\n" $estimated_wait
+		elif [ "$estimated_wait" -lt -60 ]; then
+			printf "Based on history, you'll be waiting indefinitely.\n"
+		else
+			printf "Based on history, your tunnel should be ready momentarily.\n"
+		fi
+
 		start_tunnel $1
 		case $? in
 		0) new=1 ;;
@@ -598,60 +610,124 @@ function config()
 # $1 = update flag
 function list()
 {
-	# Dump devices table
-	echo -e "${BLUE}\nDevices:${NO_COLOR}"
-	echo -ne "${WHITE}"
-	printf "%-16s %-15s %-7s %-20s %-10s" ID IP VERSION LAST_PROBE USER
-	echo -e "${NO_COLOR}"
-	IFS=$'\n' 
-	for dev in $(query "SELECT id,ip,bversion,EXTRACT(epoch from date_trunc('second', date_last_seen)) FROM devices ORDER BY id;"); do
-		IFS=$'|' read id ip ver ts <<< "$dev"
-		off_time=$(( $(date +%s) - $ts ))
-		if [ $off_time -lt 300 ]; then
-			echo -ne $GREEN
-		elif [ $off_time -lt 600 ]; then
-			echo -ne $YELLOW
-		else
-			[ "$1" == log -a $off_time -lt 900 ] && echo "$(date +"%Y-%m-%d %H:%M:%S") - Device $id went offline" >> /tmp/devices.log
-			echo -ne $RED
-		fi
-		printf "%-16s %-15s %-7s %-20s %-10s" $id $ip $ver $(date -d @$ts +"%Y-%m-%d %H:%M:%S")
-		echo -e $NO_COLOR
+	shift
+
+	local show_only order_by
+	local filter_expression devices_filter_clause tunnels_filter_clause messages_filter_clause
+	order_by=id
+	for arg in $@; do
+		case $arg in
+			up)
+				show_only=devices
+			;;
+			stale)
+				show_only=devices
+			;;
+			down)
+				show_only=devices
+			;;
+			devices)
+				show_only=devices
+			;;
+			tunnels)
+				show_only=tunnels
+			;;
+			messages)
+				show_only=messages
+			;;
+			by-age)
+				order_by=probe_age,id
+			;;
+			*)
+				filter_expression=$arg
+				devices_filter_clause="WHERE id LIKE '%$filter_expression' OR host(ip) = '$filter_expression'"
+				tunnels_filter_clause="WHERE device_id LIKE '%$filter_expression'"
+				messages_filter_clause="WHERE msgto LIKE '%$filter_expression'"
+			;;
+		esac
 	done
-	[ "$1" == "notify" ] && ( sendmail "@/tmp/devices.log" ; rm /tmp/devices.log )
+
+	if [ -n "$filter_expression" ]; then
+		echo -e "Filtering by ${WHITE}$filter_expression${NO_COLOR}\n"
+	fi
+
+	# Dump devices table
+	if [ -z "$show_only" -o "$show_only" == "devices" ]; then
+		echo -e "${BLUE}Devices:${NO_COLOR}"
+		echo -ne "${WHITE}"
+		printf "%-16s  %-15s  %-7s  %-20s  %-6s  %s" ID IP VERSION LAST_PROBE STATUS PROBE_AGE
+		echo -e "${NO_COLOR}"
+		IFS=$'\n' 
+		for dev in $(query "SELECT id,ip,bversion,EXTRACT(epoch from date_trunc('second', date_last_seen)),date_trunc('second', date_last_seen),extract(epoch from date_trunc('second', current_timestamp - date_last_seen)),date_trunc('second', age(current_timestamp, date_last_seen)) as probe_age FROM devices $devices_filter_clause ORDER BY $order_by;"); do
+			IFS=$'|' read id ip ver ts last_probe off_time off_formatted <<< "$dev"
+			if [ $off_time -lt 300 ]; then
+				status=up
+			elif [ $off_time -lt 600 ]; then
+				status=stale
+			else
+				[ "$1" == log -a $off_time -lt 900 ] && echo "$(date +"%Y-%m-%d %H:%M:%S") - Device $id went offline" >> /tmp/devices.log
+				status=down
+			fi
+			if [ "$1" == "up" -o "$1" == "down" -o "$1" == "stale" ]; then
+				if [ "$status" != "$1" ]; then
+					continue
+				fi
+			fi
+			case $status in
+				up)
+					echo -ne $GREEN;;
+				stale)
+					echo -ne $YELLOW;;
+				down)
+					echo -ne $RED;;
+			esac
+			printf "%-16s  %-15s  %-7s  %-20s  %-6s  %s" $id $ip $ver $last_probe $status $off_formatted
+			echo -e $NO_COLOR
+		done
+		if [ -z "$show_only" ]; then
+			echo
+		fi
+		[ "$1" == "notify" ] && ( sendmail "@/tmp/devices.log" ; rm /tmp/devices.log )
+	fi
 
 	# Dump tunnels table
-	echo -e "\n${BLUE}Tunnels:${NO_COLOR}"
-	echo -ne "${WHITE}"
-	printf "%-16s %-5s %-20s" ID PORT START_TIME
-	echo -e "${NO_COLOR}"
+	if [ -z "$show_only" -o "$show_only" == "tunnels" ]; then
+		echo -e "${BLUE}Tunnels:${NO_COLOR}"
+		echo -ne "${WHITE}"
+		printf "%-16s  %-5s  %-20s" ID PORT START_TIME
+		echo -e "${NO_COLOR}"
 
-	IFS=$'\n' 
-	for dev in $(query "SELECT device_id, port, EXTRACT(epoch from date_trunc('second', date_created)) FROM tunnels ORDER BY device_id;"); do
-		IFS=$'|' read id port ts <<< "$dev"
-		check_tunnel $id $port
-		if [ $? -eq 0 ]; then
-			echo -ne $GREEN
-		elif [ $? -eq 2 ]; then
-			echo -ne $YELLOW
-		else
-			echo -ne $RED
+		IFS=$'\n' 
+		for dev in $(query "SELECT device_id, port, EXTRACT(epoch from date_trunc('second', date_created)) FROM tunnels $tunnels_filter_clause ORDER BY device_id;"); do
+			IFS=$'|' read id port ts <<< "$dev"
+			check_tunnel $id $port
+			if [ $? -eq 0 ]; then
+				echo -ne $GREEN
+			elif [ $? -eq 2 ]; then
+				echo -ne $YELLOW
+			else
+				echo -ne $RED
+			fi
+			printf "%-16s  %-5s  %-20s" $id $port $(date -d @$ts +"%Y-%m-%d %H:%M:%S")
+			echo -e $NO_COLOR
+		done
+		if [ -z "$show_only" ]; then
+			echo
 		fi
-		printf "%-16s %-5s %-20s" $id $port $(date -d @$ts +"%Y-%m-%d %H:%M:%S")
-		echo -e $NO_COLOR
-	done
-	echo -ne $NO_COLOR
+	fi
 
 	# Dump messages table
-	echo -e "\n${BLUE}Pending Messages:${NO_COLOR}"
-	echo -e "${WHITE}ID\tFROM\tTO\tMESSAGE${NO_COLOR}"
-	IFS=$'\n' 
-	for message in $(query 'SELECT * FROM messages ORDER BY msgfrom,msgto;'); do
-		IFS=$'|' read from to msg <<< "$message"
-		echo -ne $MAGENTA
-		printf "%s\t%s\t%s" $from $to $msg
-		echo -e $NO_COLOR
-	done
+	if [ -z "$show_only" -o "$show_only" == "messages" ]; then
+		echo -e "${BLUE}Pending Messages:${NO_COLOR}"
+		echo -ne "${WHITE}"
+		printf "%-10s  %-14s  %-14s  %-20s" ID FROM TO MESSAGE
+		echo -e "${NO_COLOR}"
+		IFS=$'\n' 
+		for message in $(query "SELECT id,msgfrom,msgto,msg FROM messages $messages_filter_clause ORDER BY msgfrom,msgto;"); do
+			IFS=$'|' read id from to msg <<< "$message"
+			printf "%-10s  %-14s  %-14s  %-20s\n" $id $from $to $msg
+		done
+	fi
 }
 
 # List measurement servers info
@@ -813,6 +889,11 @@ function cleardev()
 		read a
 		[ $a == "yes" ] && query "DELETE FROM devices;"
 	fi
+}
+
+function disable_colors()
+{
+	unset RED GREEN YELLOW BLUE MAGENTA CYAN WHITE NO_COLOR
 }
 
 ## Main ##
