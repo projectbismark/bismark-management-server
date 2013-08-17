@@ -42,16 +42,34 @@ def sqlconn():
     sys.exit()
   return conn
 
-def run_insert_cmd(cmd,conn=None,prnt=0):
+def run_insert_cmd(cmds,conn=None,prnt=0):
   if conn == None:
     conn = sqlconn()
-  #print cmd
-  try:
-    conn.query(cmd)
-  except:
-    print "Couldn't run %s\n"%(cmd)
-    return 0 
-  #cursor.fetchall()
+  bulkflag = 0
+  savepointcmd = 'savepoint sp;'
+  #print cmds
+  if len(cmds) > 1:
+    bulkflag = 1
+    conn.query('begin')
+    conn.query(savepointcmd)
+    print 'begin'
+  for cmd in cmds:
+    try:
+      res = conn.query(cmd)
+      conn.query(savepointcmd)
+      if prnt == 1:
+        print cmd
+    except:
+      print "Couldn't run %s\n"%(cmd)
+      if bulkflag == 1:
+        conn.query('rollback to savepoint sp')
+        pass
+      else:
+        return 0
+    #cursor.fetchall()
+  if bulkflag == 1:
+    print 'end'
+    conn.query('end')
   return 1 
 
 def run_data_cmd(cmd,conn=None,prnt=0):
@@ -63,7 +81,8 @@ def run_data_cmd(cmd,conn=None,prnt=0):
   try:
     res = conn.query(cmd)
   except:
-    #print "Couldn't run %s\n"%(cmd)
+    print conn.error
+    print "Couldn't run %s\n"%(cmd)
     return 0 
   result = res.getresult()
   return result 
