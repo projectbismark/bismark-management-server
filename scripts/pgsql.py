@@ -36,7 +36,7 @@ def sqlconn():
           host=config['BDM_PG_HOST'],
           user=config['BDM_PG_USER'],
           password=config['BDM_PG_PASSWORD'])
-  cursor = conn.cursor() 
+    cursor = conn.cursor() 
   except:
     print "Could not connect to sql server"
     sys.exit()
