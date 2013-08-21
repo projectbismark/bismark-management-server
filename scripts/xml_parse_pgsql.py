@@ -70,20 +70,21 @@ def modify_fid(fid,table):
   return fid
 
 def modify_val(fid,val):
+  nstr = '%s'
   nval = val
   if val == '':
     nval = 'NULL'
-  nval = "'" + val + "'"
+  #nval = "'" + val + "'"
   if fid  == 'timestamp':
-    nval = 'to_timestamp(%s)'%(val)
+    nstr = 'to_timestamp(%s)'#%(val)
   if fid  == 'deviceid':
-    nval = "'%s'"%(val[-12:])
+    nval = '%s'%(val[-12:])
  #if fid in ['deviceid','param','tool']:
   #  nval = '"' + val + '"'
   #else:
     #if fid in ['srcip','dstip','ip']:
     #  nval = 'INET_ATON("' + val + '")'
-  return nval
+  return nstr,nval
 
 def get_tool_info(tool):
   cmd = 'select id from tools where tool = "%s"'%(tool)
@@ -115,13 +116,15 @@ def form_insert_cmd(table,fids,vals):
   cmd += ') SELECT '
   if 'traceroute' not in table:
     cmd += '0,'
+  cvals = []
   for val in vals:
     ind = vals.index(val)
-    nval = modify_val(fids[ind],val)
-    cmd += nval + ","
+    nstr,nval = modify_val(fids[ind],val)
+    cmd += nstr + ","
+    cvals.append(nval)
   cmd = cmd[0:len(cmd)-1]
   #print cmd
-  return cmd
+  return cmd,cvals
 
 def get_uid(did,table):
   cmd = 'SELECT userid from ' + table + ' where '
@@ -167,11 +170,11 @@ def write_block_v1_0(data,tables,log,file):
           fids,vals = get_measurement_params(fids,vals,idtuple)
         
         fids,vals = get_measurement_params(fids,vals,data[tab][i])
-        cmd = form_insert_cmd(table,fids,vals)
+        cmd,cvals = form_insert_cmd(table,fids,vals)
         #print cmd,table
         if tab == 'traceroute':
           cmd = "%s returning encode(id,'escape')"%(cmd)
-          res = sql.run_data_cmd(cmd,conn=conn,prnt=1) # to get return value
+          res = sql.run_data_cmd(cmd,cvals,conn=conn,prnt=1) # to get return value
           did = data['info'][0]['deviceid'][-12:]
           ts = vals[fids.index('timestamp')]
           srcip = vals[fids.index('srcip')]
@@ -187,7 +190,7 @@ def write_block_v1_0(data,tables,log,file):
             traceroutearr[did] = {tup:trid}
           #print res
         else:
-          postcmds.append(cmd)
+          postcmds.append([cmd,cvals])
         cnt = 0
         #while ((res == 0) and (cnt < 5)):
           #print "res ", res

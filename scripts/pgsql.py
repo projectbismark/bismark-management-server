@@ -1,7 +1,7 @@
 #!/usr/bin/python 
 
 from gzip import GzipFile as gz
-import pg as pgsql
+import psycopg2 as pgsql
 import sys
 import traceback
 import os
@@ -32,57 +32,51 @@ def sqlconn():
 
   try:
     conn = pgsql.connect(
-          dbname=config['BDM_PG_DATA_DBNAME'],
+          database=config['BDM_PG_DATA_DBNAME'],
           host=config['BDM_PG_HOST'],
           user=config['BDM_PG_USER'],
-          passwd=config['BDM_PG_PASSWORD'])
+          password=config['BDM_PG_PASSWORD'])
   #cursor = conn.cursor() 
   except:
     print "Could not connect to sql server"
     sys.exit()
-  return conn
+  return cursor
 
 def run_insert_cmd(cmds,conn=None,prnt=0):
   if conn == None:
     conn = sqlconn()
-  bulkflag = 0
   savepointcmd = 'savepoint sp;'
   #print cmds
-  if len(cmds) > 1:
-    bulkflag = 1
-    conn.query('begin')
-    conn.query(savepointcmd)
-    print 'begin'
-  for cmd in cmds:
+  conn.execute('begin')
+  conn.execute(savepointcmd)
+  print 'begin'
+  for ctup in cmds:
+    cmd = ctup[0]
+    cvals = ctup[1]
     try:
-      res = conn.query(cmd)
-      conn.query(savepointcmd)
+      conn.execute(cmd,cvals)
+      conn.execute(savepointcmd)
       if prnt == 1:
-        print cmd
+        print cmd,cvals
     except:
-      print "Couldn't run %s\n"%(cmd)
-      if bulkflag == 1:
-        conn.query('rollback to savepoint sp')
-        pass
-      else:
-        return 0
+      print "Couldn't run ",cmd,cvals
+      conn.execute('rollback to savepoint sp')
     #cursor.fetchall()
-  if bulkflag == 1:
-    print 'end'
-    conn.query('end')
+  print 'end'
+  conn.execute('commit')
   return 1 
 
-def run_data_cmd(cmd,conn=None,prnt=0):
+def run_data_cmd(cmd,cvals,conn=None,prnt=0):
   if conn == None:
     conn = sqlconn()
   res = ''
   if prnt == 1:
-    print cmd
+    print cmd,cvals
   try:
-    res = conn.query(cmd)
+    conn.execute(cmd,cvals)
   except:
-    print conn.error
-    print "Couldn't run %s\n"%(cmd)
+    #print conn.error
+    print "Couldn't run ", cmd,cvals
     return 0 
-  result = res.getresult()
+  result = conn.fetchall()
   return result 
