@@ -5,8 +5,10 @@ import subprocess as sub
 import gzip as gz
 import time
 import pgsql as sql
+import bsdtr
 
 conn = sql.sqlconn()
+bsdtr.init()
 traceroutearr = {}
 
 def get_fields(line):
@@ -33,21 +35,13 @@ def get_measurement_params(fids,vals,arr):
     vals.append(arr[fid])
   return fids,vals
 
-def get_id_from_table(table,did,srcip,dstip,ts):
-  tup = (srcip,dstip,ts)
-  if did in traceroutearr:
-    if tup in traceroutearr[did]:
-      return traceroutearr[did][tup]
-  if did not in traceroutearr:
-    return ''
-#    traceroutearr[did] = {}
-#  cmd = "SELECT encode(id,'escape') from %s where deviceid = '%s' \
-#and srcip = '%s' and dstip = '%s' and eventstamp = to_timestamp(%s)"%(table,did,srcip,dstip,ts)
-#  print cmd
-#  res = sql.run_data_cmd(cmd,conn=conn)
-#  #print res,str(res[0][0])
-#  traceroutearr[did][tup] = str(res[0][0])
-#  return traceroutearr[did][tup]
+#def get_id_from_table(table,did,srcip,dstip,ts):
+#  tup = (srcip,dstip,ts)
+#  if did in traceroutearr:
+#    if tup in traceroutearr[did]:
+#      return traceroutearr[did][tup]
+#  if did not in traceroutearr:
+#    return ''
 
 def modify_fid(fid,table):
   if fid == 'timestamp':
@@ -126,13 +120,6 @@ def form_insert_cmd(table,fids,vals):
   #print cmd
   return cmd,cvals
 
-def get_uid(did,table):
-  cmd = 'SELECT userid from ' + table + ' where '
-  cmd += 'deviceid = "' + did + '"'
-  #res = sql.run_data_cmd(cmd)
-  #return str(res[0][0])
-  return "NULL"
-
 def write_block_v1_0(data,tables,log,file):
   if 'info' not in data:
     log.write('Error: No info field in %s\n'%(file))
@@ -149,6 +136,7 @@ def write_block_v1_0(data,tables,log,file):
   #print data
   #postcmds = ['begin']
   postcmds = []
+  global traceroutearr
   for tab in tables:
     if tab in data:
       numrec = len(data[tab])
@@ -158,6 +146,8 @@ def write_block_v1_0(data,tables,log,file):
         vals = []
         if tab != 'hop':
           fids,vals = get_measurement_params(fids,vals,data['info'][0])
+          fids,vals = get_measurement_params(fids,vals,data[tab][i])
+          cmd,cvals = form_insert_cmd(table,fids,vals)
         else:
           ttid = data[tab][i]['ttid']
           data[tab][i].pop('ttid')
@@ -165,43 +155,45 @@ def write_block_v1_0(data,tables,log,file):
           ts = data['traceroute'][ttid]['timestamp']
           srcip = data['traceroute'][ttid]['srcip']
           dstip = data['traceroute'][ttid]['dstip']
-          tid = get_id_from_table(tables['traceroute'],did,srcip,dstip,ts)
-          idtuple = {"tid":tid}
-          fids,vals = get_measurement_params(fids,vals,idtuple)
-        
-        fids,vals = get_measurement_params(fids,vals,data[tab][i])
-        cmd,cvals = form_insert_cmd(table,fids,vals)
+          try: 
+            toolid = data['traceroute'][ttid]['tool']
+          except:
+            toolid = 'traceroute'
+          tup = (did,ts,srcip,dstip,toolid)
+          #idtuple = {"tid":''}
+          #print tab
+          #fids,vals = get_measurement_params(fids,vals,idtuple)
+          fids,vals = get_measurement_params(fids,vals,data[tab][i])
+          hopid = vals[fids.index('id')]
+          hopip = vals[fids.index('ip')]
+          hoprtt = vals[fids.index('rtt')]
+          hopval = (hopid,hopip,hoprtt)
+          try:
+            traceroutearr[tup].append(hopval)
+          except:
+            traceroutearr[tup] = [hopval]
         #print cmd,table
-        if tab == 'traceroute':
-          cmd = "%s returning encode(id,'escape')"%(cmd)
-          res = sql.run_data_cmd(cmd,cvals,conn=conn,prnt=1) # to get return value
-          did = data['info'][0]['deviceid'][-12:]
-          ts = vals[fids.index('timestamp')]
-          srcip = vals[fids.index('srcip')]
-          dstip = vals[fids.index('dstip')]
-          tup = (srcip,dstip,ts)
-          try:
-            trid = res[0][0]
-          except:
-            trid = 'NULL'
-          try:
-            traceroutearr[did][tup] = trid
-          except:
-            traceroutearr[did] = {tup:trid}
-          #print res
-        else:
+        #if tab == 'traceroute':
+        #  cmd = "%s returning encode(id,'escape')"%(cmd)
+        #  #res = sql.run_data_cmd(cmd,cvals,conn=conn,prnt=1) # to get return value
+        #  did = data['info'][0]['deviceid'][-12:]
+        #  ts = vals[fids.index('timestamp')]
+        #  srcip = vals[fids.index('srcip')]
+        #  dstip = vals[fids.index('dstip')]
+        #  if 'tool' in fids:
+        #    toolid = vals[fids.index('tool')]
+        #  else:
+        #    toolid = 'traceroute'
+        #  tup = (did,ts,srcip,dstip,toolid)
+        #  traceroutearr[tup] = []
+        if tab != 'hop' and tab != 'traceroute':
           postcmds.append([cmd,cvals])
-        cnt = 0
-        #while ((res == 0) and (cnt < 5)):
-          #print "res ", res
-          #time.sleep(.1)   
-          #res = sql.run_insert_cmd(cmd)
-          #cnt += 1
-        #if res == 0:
-          #log.write('Could not %s from %s\n'%(cmd,file))
   if len(postcmds) > 1:
     #postcmds.append('commit')
     sql.run_insert_cmd(postcmds,conn=conn)
+  if len(traceroutearr) > 0:
+    bsdtr.write(traceroutearr)
+    traceroutearr = {}
     
 
 def parse_block_v1_0(block,version,tables,log):
