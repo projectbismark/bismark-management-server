@@ -278,10 +278,11 @@ def get_parsed_files():
 
 if __name__ == '__main__':
   HOME = os.environ['HOME'] + '/' #research/bismark/db/bismark/'
-  #HOME = '/tmp/bismark_test/'
-  MEASURE_FILE_DIR = 'var/data/'
+  try:
+    MEASURE_FILE_DIR = os.environ['MEASURE_FILE_DIR']#'var/data/'
+  except:
+    sys.exit("Environment variable 'MEASURE_FILE_DIR' required and not defined. Terminating.")
   LOG_DIR = 'var/log/'
-  #ARCHIVE_DIR = 'var/archive/openwrt2'
   FILE_LOG = LOG_DIR + 'xml_openwrt_parse_files'
   FILE_PARSED_DB = LOG_DIR + 'parsed_files.db'
   tables = {'measurement':'MEASUREMENTS','traceroute':'traceroutes','hop':'traceroute_hops'}
