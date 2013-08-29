@@ -2,11 +2,12 @@
 
 pidfile=/home/bismark/var/run/parser_pid
 #activedir=/home/bismark/var/data/http_uploads/active
-activedir="/data/bismark/http_uploads/active /var/local/home/bismark-data-xfer/bismark_data_untarred/active"
+activedir="/data/bismark/http_uploads/active"
 datadir=/home/bismark/var/data
 
 # Load local db config file (contains passwords, etc.)
 . ~/etc/bdm_db.conf
+. ~/etc/parser.conf
 
 if [ -e $pidfile ]; then
 	echo "parser running"
@@ -23,6 +24,7 @@ for i in $activedir; do
 	#ls $i/OW*/OW* $datadir
 done
 sleep 5
-~/bin/xml_parse_pgsql.py > ~/var/log/last_xml_openwrt_parse.log 2>~/var/log/last_xml_openwrt_parse_error.log
+~/bin/parse_xml > ~/var/log/last_xml_openwrt_parse.log 2>~/var/log/last_xml_openwrt_parse_error.log
+~/bin/parse_xml_tgz >> ~/var/log/last_xml_openwrt_parse.log 2>>~/var/log/last_xml_openwrt_parse_error.log
 ~/bin/fixup_klatch_direction_column.py > ~/var/log/fixup_klatch_direction_column.log 2>&1
 rm $pidfile
