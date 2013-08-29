@@ -8,7 +8,6 @@ import pgsql as sql
 import bsdtr
 
 conn = sql.sqlconn()
-bsdtr.init()
 traceroutearr = {}
 
 def get_fields(line):
