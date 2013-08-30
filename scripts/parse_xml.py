@@ -25,7 +25,7 @@ def ignore_file(file):
   return False
 
 if __name__ == '__main__':
-  HOME = os.environ['HOME']
+  HOME = os.environ['HOME'] + '/'
   MEASURE_FILE_DIR = 'var/data/'
   LOG_DIR = 'var/log/'
   ARCHIVE_DIR = 'var/archive/openwrt'
