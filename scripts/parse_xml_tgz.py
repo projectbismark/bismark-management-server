@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
   filelog = open(HOME+FILE_LOG,'w')
   log = gz.open(HOME+LOG_DIR+'insert.log.gz','ab')
-  files = sub.Popen(['find',HOME+MEASURE_FILE_DIR,'-type','f'],stdout=sub.PIPE).communicate()
+  files = sub.Popen(['find',MEASURE_FILE_DIR,'-type','f'],stdout=sub.PIPE).communicate()
   if files[1] == '':
     sys.exit('Error with find')
   files = files[0].split('\n')
