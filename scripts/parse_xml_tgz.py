@@ -26,8 +26,12 @@ def get_parsed_files(parseddb):
   return obj
 
 if __name__ == '__main__':
-  HOME = os.environ['HOME']
-  MEASURE_FILE_DIR = 'var/data/'
+  HOME = os.environ['HOME'] + '/'
+  #MEASURE_FILE_DIR = 'var/data/'
+  try:
+    MEASURE_FILE_DIR = os.environ['MEASURE_FILE_DIR']
+  except:
+    sys.exit('Required Environment variable MEASURE_FILE_DIR not defined. Terminating')
   LOG_DIR = 'var/log/'
   FILE_LOG = LOG_DIR + 'xml_openwrt_parse_files'
   FILE_PARSED_DB = LOG_DIR + 'parsed_files.db'
