@@ -9,6 +9,7 @@ import bsdtr
 
 conn = sql.sqlconn()
 traceroutearr = {}
+bsdtr.init()
 
 def get_fields(line):
   skey = ''
