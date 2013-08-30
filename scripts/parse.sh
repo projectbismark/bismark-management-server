@@ -24,7 +24,7 @@ for i in $activedir; do
 	#ls $i/OW*/OW* $datadir
 done
 sleep 5
-~/bin/parse_xml > ~/var/log/last_xml_openwrt_parse.log 2>~/var/log/last_xml_openwrt_parse_error.log
-~/bin/parse_xml_tgz >> ~/var/log/last_xml_openwrt_parse.log 2>>~/var/log/last_xml_openwrt_parse_error.log
+~/bin/parse_xml.py > ~/var/log/last_xml_openwrt_parse.log 2>~/var/log/last_xml_openwrt_parse_error.log
+~/bin/parse_xml_tgz.py >> ~/var/log/last_xml_openwrt_parse.log 2>>~/var/log/last_xml_openwrt_parse_error.log
 ~/bin/fixup_klatch_direction_column.py > ~/var/log/fixup_klatch_direction_column.log 2>&1
 rm $pidfile
