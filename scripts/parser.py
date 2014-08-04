@@ -115,7 +115,7 @@ def form_insert_cmd(table,fids,vals):
 def write_block_v1_0(data,tables,log,fname):
   if 'info' not in data:
     log.write('Error: No info field in %s\n'%(fname))
-    return
+    return False
   flag = 0
   for tab in tables:
     if tab in data:
@@ -123,12 +123,13 @@ def write_block_v1_0(data,tables,log,fname):
       break
   if flag == 0:
     log.write('Error: No known fields in %s\n'%(fname))
-    return
+    return False
 
   #print data
   #postcmds = ['begin']
   postcmds = []
   global traceroutearr
+  invalid_data=False
   for tab in tables:
     if tab in data:
       numrec = len(data[tab])
@@ -141,25 +142,39 @@ def write_block_v1_0(data,tables,log,fname):
           fids,vals = get_measurement_params(fids,vals,data[tab][i])
           cmd,cvals = form_insert_cmd(table,fids,vals)
         else:
-          ttid = data[tab][i]['ttid']
-          data[tab][i].pop('ttid')
-          did = data['info'][0]['deviceid'][-12:]
-          ts = data['traceroute'][ttid]['timestamp']
-          srcip = data['traceroute'][ttid]['srcip']
-          dstip = data['traceroute'][ttid]['dstip']
+          try:
+            ttid = data[tab][i]['ttid']
+            data[tab][i].pop('ttid')
+            did = data['info'][0]['deviceid'][-12:]
+            ts = data['traceroute'][ttid]['timestamp']
+            srcip = data['traceroute'][ttid]['srcip']
+            dstip = data['traceroute'][ttid]['dstip']
+          except:
+            #invalid data
+            invalid_data=True
+            postcmds = []
+            break
           try: 
             toolid = data['traceroute'][ttid]['tool']
           except:
-            toolid = 'traceroute'
+            try:
+              toolid = data['traceroute'][ttid]['toolid']
+            except:
+              toolid = 'traceroute'
           tup = (did,ts,srcip,dstip,toolid)
           #idtuple = {"tid":''}
           #print tab
           #fids,vals = get_measurement_params(fids,vals,idtuple)
           fids,vals = get_measurement_params(fids,vals,data[tab][i])
-          hopid = vals[fids.index('id')]
-          hopip = vals[fids.index('ip')]
-          hoprtt = vals[fids.index('rtt')]
-          hopval = (hopid,hopip,hoprtt)
+          try:
+            hopid = vals[fids.index('id')]
+            hopip = vals[fids.index('ip')]
+            hoprtt = vals[fids.index('rtt')]
+            hopval = (hopid,hopip,hoprtt)
+          except:
+            invalid_data=True
+            postcmds = []
+            break
           try:
             traceroutearr[tup].append(hopval)
           except:
@@ -180,12 +195,15 @@ def write_block_v1_0(data,tables,log,fname):
         #  traceroutearr[tup] = []
         if tab != 'hop' and tab != 'traceroute':
           postcmds.append([cmd,cvals])
+      if invalid_data == True:
+        return False
   if len(postcmds) > 1:
     #postcmds.append('commit')
     sql.run_insert_cmd(postcmds,conn=conn)
   if len(traceroutearr) > 0:
     bsdtr.write(traceroutearr)
     traceroutearr = {}
+  return True
     
 
 def parse_block_v1_0(block,version,tables,log):
@@ -203,8 +221,12 @@ def parse_block_v1_0(block,version,tables,log):
     tuple = {}
     if head == 'hop':
       tuple['ttid'] = len(data['traceroute']) -1
+    #print("f------->", fields[1:])
     for field in fields[1:]:
       field = field.split("=")
+      if len(field) != 2:
+        log.write("Unexpected split result %s\n" % str(fields[1:]))
+	continue
       name = field[0]
       val = field[1]
       tuple[name] = val
@@ -221,12 +243,12 @@ def parse_block_v1_1(block,version,tables,log):
 def parse_block(block,version,tables,log,fname):
   if version == '1.0':
     data = parse_block_v1_0(block,version,tables,log)
-    write_block_v1_0(data,tables,log,fname)
-  if version == '1.2' or version == '1.3':
+  elif version == '1.2' or version == '1.3':
     data = parse_block_v1_1(block,version,tables,log)
     did = data['info'][0]['deviceid']
-    write_block_v1_0(data,tables,log,fname)
-  return True
+  else:
+    return False
+  return write_block_v1_0(data,tables,log,fname)
 
 def log_bad_block(log,block,fname):
   log.write('Bad block in %s\n'%(fname))

@@ -7,17 +7,18 @@ import time
 import pgsql as sql
 import bsdtr
 import tarfile
+import glob
 from parser import *
 
 def ignore_file(fname,parsed_files):
-  if fname in parsed_files:
-    return True
+  if os.path.basename(fname) in parsed_files:
+   return True
   if 'active' not in fname:
     return True
-  if 'OW' not in fname:
-    return True
-  if 'OW_' in fname:
-    return True
+  #if 'OW' not in fname:
+  #   return True
+  #if 'OW_' in fname:
+  #  return True
   return False
 
 def get_parsed_files(parseddb):
@@ -36,14 +37,20 @@ if __name__ == '__main__':
   FILE_LOG = LOG_DIR + 'xml_openwrt_parse_files'
   FILE_PARSED_DB = LOG_DIR + 'parsed_files.db'
   tables = {'measurement':'MEASUREMENTS','traceroute':'traceroutes','hop':'traceroute_hops'}
-
   filelog = open(HOME+FILE_LOG,'w')
   log = gz.open(HOME+LOG_DIR+'insert.log.gz','ab')
-  files = sub.Popen(['find',MEASURE_FILE_DIR,'-type','f'],stdout=sub.PIPE).communicate()
-  if files[1] == '':
-    sys.exit('Error with find')
-  files = files[0].split('\n')
+#  files = sub.Popen(['find',MEASURE_FILE_DIR,'-type','f'],stdout=sub.PIPE).communicate()
+  files_ow = glob.glob(os.path.join(MEASURE_FILE_DIR,"*/active/OW*/active*"))
+  files_dl = glob.glob(os.path.join(MEASURE_FILE_DIR,"*/active/DL*/active*"))
+  if files_ow[1] == '':
+    sys.exit('Error with glob (OW)')
+#  files = files[0].split('\n') not needed anymore
+  if files_dl[0] == '':
+    sys.exit('Error with glob (DL)')
   fcnt = 0
+
+  files = files_ow + files_dl
+
   parsed_files = get_parsed_files(HOME+FILE_PARSED_DB)
   for fn in files:
     if ignore_file(fn,parsed_files) == True:
@@ -58,7 +65,7 @@ if __name__ == '__main__':
       print fname
       parsefile(file,fname,tables,log)
     log.write('Done ' + fn + '\n')
-    parsed_files[fn] = ''
+    parsed_files[os.path.basename(fn)] = ''
     parsed_files.sync()
     #move_file(HOME+MEASURE_FILE_DIR+file,HOME+ARCHIVE_DIR)
     fcnt += 1
@@ -66,4 +73,3 @@ if __name__ == '__main__':
       sys.exit()
   log.close()
   filelog.close()
-
